@@ -13,7 +13,7 @@ def fsoftmax(x):
 
 class bnn_layer(object):
     
-    def __init__(self, inp, shape, mu, rho, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid ):
+    def __init__(self, inp, shape, sb, mu, rho, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid ):
         shape[0] += 1
         self.w = tf.Variable(tf.truncated_normal(shape, stddev = mu), dtype = tf.float32)
         self.r = tf.Variable(tf.truncated_normal(shape, stddev = rho), dtype = tf.float32)
@@ -34,21 +34,18 @@ class bnn_layer(object):
         self.q_pos = normpdf(self.c_w, self.w3, rhoact(self.r3))
         self.p_pri = 0.8 * normpdf(self.c_w, self.p_w3, rhoact(self.p_r3))\
                      + 0.2 * normpdf(self.c_w, self.p_w3, rhoact(self.p_bgr3))
-        #self.pre_o = tf.matmul(inp, self.c_w[:, :-1, :]) + tf.transpose(self.c_w[:,-1,:], [1, 0, 2])
+               
+        #test = tf.range(sb)
+        #iones = tf.constant(1, shape = [shape[0], 1])
+        iones = tf.ones(shape = tf.shape(inp))
+        #print iones.get_shape()
+        #print inp.get_shape()
+        iones2 = tf.reduce_mean(iones, 2, keep_dims = True)
+        newinp = tf.concat(2, [inp, iones2])
+        #print newinp.get_shape()
         
-        #test1 = tf.batch_matmul(inp, self.c_w[:, :-1, :])
-        #test2 = tf.transpose(self.c_w[:,-1,:], [1, 0, 2])
-        
-        #print tf.shape(test2)
-        #self.pre_o = tf.batch_matmul(inp, self.c_w[:, :-1, :]) + tf.transpose(self.c_w[:,-1,:], [1, 0, 2])
-
-        
-        
-        iones = tf.constant(1, shape = [shape[0], 1])
-        newinp = tf.concat(1, [inp, iones])
         
         self.pre_o = tf.batch_matmul(newinp, self.c_w)
-        
         self.out = outact(self.pre_o)
                                      
         self.log_q_pos = tf.reduce_sum(tf.log(self.q_pos), [1, 2])
@@ -71,6 +68,7 @@ class bnn_model(object):
         
         self.x = tf.placeholder(tf.float32, [None, shape[0]])
         self.t = tf.placeholder(tf.float32, [None, shape[-1]])
+        size_batch = tf.to_int32(tf.shape(self.x)[0])
         
         self.x3 = tf.tile(tf.expand_dims(self.x, 0), [self.n_samples, 1, 1])
         
@@ -88,10 +86,10 @@ class bnn_model(object):
             else: 
                 actout = outact
                 
-            self.layers.append(bnn_layer(inp, [shape[i], shape[i+1]], mu, rho, n_samples = self.n_samples, rseed = seed + i, outact = actout))
+            self.layers.append(bnn_layer(inp, [shape[i], shape[i+1]], size_batch, mu, rho, n_samples = self.n_samples, rseed = seed + i, outact = actout))
             
         self.pred = self.layers[-1].out
-        print self.t.get_shape()
+        print self.pred.get_shape()
         
         tmaxs = tf.argmax(self.t, 1)
         tshape = tf.shape(self.t)
@@ -102,11 +100,14 @@ class bnn_model(object):
         tr4 = tf.gather(tf.reshape(self.pred, [-1]), tr3)
         tr5 = tf.reshape(tr4, [self.n_samples, -1])
       
+        
         self.loglike = tf.reduce_sum(tf.log(tr5), [1])
         self.acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(tf.reduce_mean(self.pred, [0]), 1), tf.argmax(self.t, 1))))
        
         self.log_q_pos = tf.reduce_sum([layer.log_q_pos for layer in self.layers])
         self.log_p_pri = tf.reduce_sum([layer.log_p_pri for layer in self.layers])
+        print self.loglike.get_shape()
+        print self.log_q_pos.get_shape()
         
         self.loss = tf.reduce_mean(self.log_q_pos - self.log_p_pri - self.loglike, [0])
         self.params = [p for layer in self.layers for p in layer.params]
@@ -117,6 +118,9 @@ class bnn_model(object):
         
     def get_loss(self):
         return self.loss
+    
+    def get_fqpl(self, feed):
+        return self.loss.eval(feed_dict = feed), self.log_q_pos.eval(feed_dict = feed), self.log_p_pri.eval(feed_dict = feed), tf.reduce_mean(self.loglike).eval(feed_dict = feed)
     
     def get_params(self):
         return self.params
@@ -137,91 +141,7 @@ class bnn_model(object):
     
     
         
-        
-'''
-class NNModel(object):
-    # dims: list of nnlayer dimensions (example: [784, 50, 10] for MNIST with one hidden layer
-    # n_samples: number of samples used for one input instance. the larger, the slower.
-    # activation: activation function used for output of each nnlayer
-    # seed: random seed
-	def __init__(self, dims, n_samples=100, activation=T.nnet.sigmoid, seed=1234):
-		assert dims[-1] != 2 # no 2-dim softmax
-		self.dims = dims
-        # is_binary: indicates whether the output of the entire network is binary or not
-		is_binary = (dims[-1] == 1)
-        # n_layers: number of layers used for this network
-		self.n_layers = len(dims)-1
-		assert self.n_layers >= 1
-
-        # x: input vector
-        # t: target vector
-        # x3d: input vector copied n_sample times
-		self.x = T.matrix('x')
-		self.t = T.ivector('t')
-		x3d = self.x.dimshuffle('x',0,1).repeat(n_samples, axis=0)
-
-        # nns: list of nnlayers
-		self.nns = list()
-        
-        # building layers
-		for l in xrange(self.n_layers):
-			if l==0:
-				inp = x3d # the bottom layer of the network. x3d is used for the input of this layer.
-			else:
-				inp = self.nns[l-1].output # otherwise, output from the last layer will be used as the input for this layer.
-
-			if l == self.n_layers-1: # the top layer of the network. 
-				if is_binary:
-					act = activation
-				else:
-					act = lambda x: log_softmax(x, axis=2) # if the output is not binary, log_softmax is used.
-			else:
-				act = activation # if it is not the top layer, then 'act' will be used for its activation function.
-				
-            # adds new nnlayer to nns
-			self.nns.append( NNLayer(dims[l], dims[l+1], inp, n_samples=n_samples, seed=seed+l, activation=act, nick=str(l)) )
-
-        # prob_y: output vector 
-		self.prob_y = self.nns[-1].output
-		if is_binary:
-            # t3d: target vector copied n_sample times
-			t3d = self.t.dimshuffle('x',0,'x')
-            # loglike: log likelihood
-			self.loglike = T.sum( t3d*T.log(self.prob_y) + (1-t3d)*T.log(1-self.prob_y) , axis=[1,2])
-            # acc: accuracy calculated by using target vector
-			self.acc = T.mean( T.eq( (T.mean(self.prob_y, axis=0)>0.5)[:,0], self.t) )
-		else:
-			self.loglike = T.sum( self.prob_y[:,T.arange(self.t.shape[0]),self.t], axis=1)
-			self.acc = T.mean( T.eq( T.argmax(T.mean(self.prob_y, axis=0), axis=1), self.t) )
-		
-
-        # log_q_posterior: log(probability of variational posterior(weight))
-        # log_p_prior: log(probability of prior(weight))
-		self.log_q_posterior = sum([nn.log_q_posterior for nn in self.nns])
-		self.log_p_prior = sum([nn.log_p_prior for nn in self.nns])
-
-        # f: loss function value (log(q(w)) - log(p(w)) - log(p(D|w)) )
-        # params: parameters (mu and rho) used for variational posterior distribution
-        # prior_params: parameters (mu and spike_rho) used for prior distribution
-		self.f = T.mean(self.log_q_posterior - self.log_p_prior - self.loglike, axis=0)
-		self.params = [param for nn in self.nns for param in nn.params]
-		self.prior_params = [pp for nn in self.nns for pp in nn.prior_params]
-	
-    # initialize(reset)s the parameters of the given network's variational posterior.
-    # Only used for logistic regression of toy data
-	def init_params(self, mu_scale=0.01, rho_scale=0.05):
-		for nn in self.nns:
-			nn.init_params(mu_scale, rho_scale)
-
-	def get_loss(self):
-		return self.f
-
-	def get_params(self):
-		return self.params
-
-	def get_inputs(self):
-		return [self.x, self.t]
-'''
+     
 
 
 
