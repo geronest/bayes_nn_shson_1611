@@ -11,6 +11,9 @@ def normpdf(x, m, r):
 def fsoftmax(x):
     return tf.exp(x) / tf.reduce_sum(tf.exp(x), 2, keep_dims = True)
 
+def dummyfunc(x):
+    return x
+
 class bnn_layer(object):
     
     def __init__(self, inp, shape, sb, mu, rho, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid ):
@@ -21,7 +24,7 @@ class bnn_layer(object):
         
         self.p_w = tf.Variable(tf.constant(0.0, shape = shape), trainable = False, dtype = tf.float32)
         self.p_r = tf.Variable(tf.constant(-1.0, shape = shape), trainable = False, dtype = tf.float32)
-        self.p_bgr = tf.Variable(tf.constant(1.0, shape = shape), trainable = False, dtype = tf.float32)
+        self.p_bgr = tf.Variable(tf.constant(10.0, shape = shape), trainable = False, dtype = tf.float32)
         
         self.e = tf.random_normal([self.n_samples, shape[0], shape[1]], seed = rseed)
         self.w3 = tf.tile(tf.expand_dims(self.w, 0), [self.n_samples, 1, 1])
@@ -47,9 +50,12 @@ class bnn_layer(object):
         
         self.pre_o = tf.batch_matmul(newinp, self.c_w)
         self.out = outact(self.pre_o)
-                                     
-        self.log_q_pos = tf.reduce_sum(tf.log(self.q_pos), [1, 2])
-        self.log_p_pri = tf.reduce_sum(tf.log(self.p_pri), [1, 2])
+        
+        self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)), [1, 2])
+        self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)), [1, 2])
+        
+        # self.log_q_pos = tf.reduce_sum(tf.log(self.q_pos), [1, 2])
+        # self.log_p_pri = tf.reduce_sum(tf.log(self.p_pri), [1, 2])
         
         self.params = [self.w, self.r]
         self.p_params = [self.p_w, self.p_r]
@@ -58,7 +64,7 @@ class bnn_layer(object):
 
 class bnn_model(object):
     
-    def __init__(self, shape, size_batch, mu = 0.1, rho = 0.1, n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8):
+    def __init__(self, shape, size_data, size_batch, mu = 0.1, rho = 0.1, n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True):
         
         self.n_layers = len(shape) - 1
         self.n_samples = n_samples
@@ -68,7 +74,7 @@ class bnn_model(object):
         
         self.x = tf.placeholder(tf.float32, [None, shape[0]])
         self.t = tf.placeholder(tf.float32, [None, shape[-1]])
-        size_batch = tf.to_int32(tf.shape(self.x)[0])
+        #size_batch = tf.to_int32(tf.shape(self.x)[0])
         
         self.x3 = tf.tile(tf.expand_dims(self.x, 0), [self.n_samples, 1, 1])
         
@@ -81,8 +87,9 @@ class bnn_model(object):
                 inp = self.layers[i-1].out
                 
             if i == self.n_layers-1:
-                #actout = tf.nn.softmax(dim = 2)
-                actout = fsoftmax
+                #actout = tf.nn.softmax
+                #actout = fsoftmax
+                actout = dummyfunc
             else: 
                 actout = outact
                 
@@ -94,33 +101,52 @@ class bnn_model(object):
         tmaxs = tf.argmax(self.t, 1)
         tshape = tf.shape(self.t)
         
+        
+        '''
         tr1 = tf.range(tf.to_int32(tshape[0]))
         tr2 = tr1 * tf.to_int32(tshape[1]) + tf.to_int32(tmaxs)
         tr3 = tf.tile(tr2, [self.n_samples])
         tr4 = tf.gather(tf.reshape(self.pred, [-1]), tr3)
         tr5 = tf.reshape(tr4, [self.n_samples, -1])
+        '''
       
+        #self.loglike = tf.reduce_sum(tf.log(tf.clip_by_value(tr5, 1e-20, 1e+20)), [1])
         
-        self.loglike = tf.reduce_sum(tf.log(tr5), [1])
+        self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(tf.reshape(self.pred, [-1, shape[-1]]), tf.tile(self.t, [self.n_samples, 1])))
+        
         self.acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(tf.reduce_mean(self.pred, [0]), 1), tf.argmax(self.t, 1))))
        
         self.log_q_pos = tf.reduce_sum([layer.log_q_pos for layer in self.layers])
         self.log_p_pri = tf.reduce_sum([layer.log_p_pri for layer in self.layers])
-        print self.loglike.get_shape()
-        print self.log_q_pos.get_shape()
+        #print self.loglike.get_shape()
+        #print self.log_q_pos.get_shape()
+     
+        self.n_batches = tf.cast(size_data / size_batch, tf.float32).eval()
+        self.init_kl = tf.cast(2.0**self.n_batches / (2.0**self.n_batches - 1.0), tf.float32).eval()
         
-        self.loss = tf.reduce_mean(self.log_q_pos - self.log_p_pri - self.loglike, [0])
+        #self.coeff_kl = tf.cast(size_batch / size_data, tf.float32)
+        self.coeff_kl = tf.Variable(tf.constant(self.init_kl), trainable = False, dtype = tf.float32)
+        
+        if kl_reweight:
+            #self.loss = tf.reduce_mean((self.log_q_pos - self.log_p_pri) * self.coeff_kl - self.loglike, [0])
+            self.loss = (self.log_q_pos - self.log_p_pri) * self.coeff_kl + self.loglike
+        else:            
+            #self.loss = tf.reduce_mean(self.log_q_pos - self.log_p_pri - self.loglike, [0])
+            self.loss = self.log_q_pos - self.log_p_pri + self.loglike
+    
         self.params = [p for layer in self.layers for p in layer.params]
         self.p_params = [p for layer in self.layers for p in layer.p_params]
         
-        self.learning_rate = lr
-        self.train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+        self.init_lr = lr
+        self.learning_rate = tf.Variable(tf.constant(lr), dtype = tf.float32)
+        #self.train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+        self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
         
     def get_loss(self):
         return self.loss
     
     def get_fqpl(self, feed):
-        return self.loss.eval(feed_dict = feed), self.log_q_pos.eval(feed_dict = feed), self.log_p_pri.eval(feed_dict = feed), tf.reduce_mean(self.loglike).eval(feed_dict = feed)
+        return self.loss.eval(feed_dict = feed), self.log_q_pos.eval(feed_dict = feed), self.log_p_pri.eval(feed_dict = feed), self.loglike.eval(feed_dict = feed)
     
     def get_params(self):
         return self.params
@@ -130,22 +156,32 @@ class bnn_model(object):
     
     def update_prior(self):
         for layer in self.layers:
-            layer.p_w = layer.w
-            layer.p_r = layer.r
+            layer.p_w.assign(layer.w.eval())
+            layer.p_r.assign(layer.r.eval())
     
     def train(self, feed):
         self.train_op.run(feed_dict = feed)
         
     def validate(self, feed):
         return self.acc.eval(feed_dict = feed)
-    
-    
         
-     
-
-
-
+    def decay_lr(self, rate_decay = 0.5, limit_decay = 1e-8):
+        if self.learning_rate.eval() > limit_decay:
+            self.learning_rate.assign(self.learning_rate.eval() * rate_decay).eval()
+            
+    def reset_lr(self):
+        self.learning_rate.assign(self.init_lr).eval()
+    
+    def get_lr(self):
+        return self.learning_rate.eval()
+    
+    def decay_klrw(self):
+        self.coeff_kl.assign(self.coeff_kl.eval() * 0.5).eval()
+    
+    def reset_klrw(self):
+        self.coeff_kl.assign(self.init_kl).eval()
         
-                                     
-                                 
-                                 
+    def get_klrw(self):
+        return self.coeff_kl.eval()
+        
+    
