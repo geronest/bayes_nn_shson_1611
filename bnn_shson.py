@@ -2,6 +2,18 @@ import tensorflow as tf
 import numpy as np
 
 
+
+def variable_summaries(var):
+    with tf.name_scope('summaries'):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        with tf.name_scope('stddev'):
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var-mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(var))
+        tf.summary.scalar('min', tf.reduce_min(var))
+        tf.summary.histogram('histogram', var)
+
 def softplus(x):
     return tf.log(1 + tf.exp(x))
 
@@ -16,51 +28,63 @@ def dummyfunc(x):
 
 class bnn_layer(object):
     
-    def __init__(self, inp, shape, sb, mu, rho, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid ):
-        shape[0] += 1
-        self.w = tf.Variable(tf.truncated_normal(shape, stddev = mu), dtype = tf.float32)
-        self.r = tf.Variable(tf.truncated_normal(shape, stddev = rho), dtype = tf.float32)
-        self.n_samples = n_samples
-        
-        self.p_w = tf.Variable(tf.constant(0.0, shape = shape), trainable = False, dtype = tf.float32)
-        self.p_r = tf.Variable(tf.constant(-1.0, shape = shape), trainable = False, dtype = tf.float32)
-        self.p_bgr = tf.Variable(tf.constant(10.0, shape = shape), trainable = False, dtype = tf.float32)
-        
-        self.e = tf.random_normal([self.n_samples, shape[0], shape[1]], seed = rseed)
-        self.w3 = tf.tile(tf.expand_dims(self.w, 0), [self.n_samples, 1, 1])
-        self.r3 = tf.tile(tf.expand_dims(self.r, 0), [self.n_samples, 1, 1])
-        self.p_w3 = tf.tile(tf.expand_dims(self.p_w, 0), [self.n_samples, 1, 1])                         
-        self.p_r3 = tf.tile(tf.expand_dims(self.p_r, 0), [self.n_samples, 1, 1])
-        self.p_bgr3 = tf.tile(tf.expand_dims(self.p_bgr, 0), [self.n_samples, 1, 1])                       
+    def __init__(self, inp, shape, sb, mu, rho, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid, layernum = 0 ):
+        with tf.name_scope('layer' + str(layernum)):
+            shape[0] += 1
+            with tf.name_scope('q_pos'):
+                self.w = tf.Variable(tf.truncated_normal(shape, stddev = mu), dtype = tf.float32, name = 'mu')
+                self.r = tf.Variable(tf.truncated_normal(shape, stddev = rho), dtype = tf.float32, name = 'rho')
+                self.n_samples = n_samples
+                variable_summaries(self.w)
+                variable_summaries(self.r)
 
-        self.c_w = self.w3 + rhoact(self.r3) * self.e
-        self.q_pos = normpdf(self.c_w, self.w3, rhoact(self.r3))
-        self.p_pri = 0.8 * normpdf(self.c_w, self.p_w3, rhoact(self.p_r3))\
-                     + 0.2 * normpdf(self.c_w, self.p_w3, rhoact(self.p_bgr3))
-               
-        #test = tf.range(sb)
-        #iones = tf.constant(1, shape = [shape[0], 1])
-        iones = tf.ones(shape = tf.shape(inp))
-        #print iones.get_shape()
-        #print inp.get_shape()
-        iones2 = tf.reduce_mean(iones, 2, keep_dims = True)
-        newinp = tf.concat(2, [inp, iones2])
-        #print newinp.get_shape()
-        
-        
-        self.pre_o = tf.batch_matmul(newinp, self.c_w)
-        self.out = outact(self.pre_o)
-        
-        self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)), [1, 2])
-        self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)), [1, 2])
-        
-        # self.log_q_pos = tf.reduce_sum(tf.log(self.q_pos), [1, 2])
-        # self.log_p_pri = tf.reduce_sum(tf.log(self.p_pri), [1, 2])
-        
-        self.params = [self.w, self.r]
-        self.p_params = [self.p_w, self.p_r]
-        
-        print ("layer done")
+            with tf.name_scope('p_pri'):
+                self.p_w = tf.Variable(tf.constant(0.0, shape = shape), trainable = False, dtype = tf.float32, name = 'p_mu')
+                self.p_r = tf.Variable(tf.constant(-1.0, shape = shape), trainable = False, dtype = tf.float32, name = 'p_rho')
+                self.p_bgr = tf.Variable(tf.constant(10.0, shape = shape), trainable = False, dtype = tf.float32)
+                variable_summaries(self.p_w)
+                variable_summaries(self.p_r)
+
+            self.e = tf.random_normal([self.n_samples, shape[0], shape[1]], seed = rseed)
+            self.w3 = tf.tile(tf.expand_dims(self.w, 0), [self.n_samples, 1, 1])
+            self.r3 = tf.tile(tf.expand_dims(self.r, 0), [self.n_samples, 1, 1])
+            self.p_w3 = tf.tile(tf.expand_dims(self.p_w, 0), [self.n_samples, 1, 1])                         
+            self.p_r3 = tf.tile(tf.expand_dims(self.p_r, 0), [self.n_samples, 1, 1])
+            self.p_bgr3 = tf.tile(tf.expand_dims(self.p_bgr, 0), [self.n_samples, 1, 1])                       
+
+            self.c_w = self.w3 + rhoact(self.r3) * self.e
+            self.q_pos = normpdf(self.c_w, self.w3, rhoact(self.r3))
+            self.p_pri = 0.8 * normpdf(self.c_w, self.p_w3, rhoact(self.p_r3))\
+                         + 0.2 * normpdf(self.c_w, self.p_w3, rhoact(self.p_bgr3))
+
+            #test = tf.range(sb)
+            #iones = tf.constant(1, shape = [shape[0], 1])
+            iones = tf.ones(shape = tf.shape(inp))
+            #print iones.get_shape()
+            #print inp.get_shape()
+            iones2 = tf.reduce_mean(iones, 2, keep_dims = True)
+            newinp = tf.concat(2, [inp, iones2])
+            #print newinp.get_shape()
+
+
+            self.pre_o = tf.batch_matmul(newinp, self.c_w)
+            self.out = outact(self.pre_o)
+            tf.summary.histogram('activation', self.out)
+
+            #self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)), [1, 2])
+            #self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)), [1, 2])
+            self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)))
+            self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)))
+            tf.summary.scalar('log_q_pos', self.log_q_pos)
+            tf.summary.scalar('log_p_pri', self.log_p_pri)
+
+            # self.log_q_pos = tf.reduce_sum(tf.log(self.q_pos), [1, 2])
+            # self.log_p_pri = tf.reduce_sum(tf.log(self.p_pri), [1, 2])
+
+            self.params = [self.w, self.r]
+            self.p_params = [self.p_w, self.p_r]
+
+            print ("layer done")
 
 class bnn_model(object):
     
@@ -71,9 +95,10 @@ class bnn_model(object):
         
         #self.x = tf.placeholder(tf.float32, [size_batch, shape[0]])
         #self.t = tf.placeholder(tf.float32, [size_batch, shape[-1]])
-        
-        self.x = tf.placeholder(tf.float32, [None, shape[0]])
-        self.t = tf.placeholder(tf.float32, [None, shape[-1]])
+       
+        self.x = tf.placeholder(tf.float32, [None, shape[0]], name = 'x')
+        self.t = tf.placeholder(tf.float32, [None, shape[-1]], name = 't')
+            
         #size_batch = tf.to_int32(tf.shape(self.x)[0])
         
         self.x3 = tf.tile(tf.expand_dims(self.x, 0), [self.n_samples, 1, 1])
@@ -93,7 +118,7 @@ class bnn_model(object):
             else: 
                 actout = outact
                 
-            self.layers.append(bnn_layer(inp, [shape[i], shape[i+1]], size_batch, mu, rho, n_samples = self.n_samples, rseed = seed + i, outact = actout))
+            self.layers.append(bnn_layer(inp, [shape[i], shape[i+1]], size_batch, mu, rho, n_samples = self.n_samples, rseed = seed + i, outact = actout, layernum = i))
             
         self.pred = self.layers[-1].out
         print self.pred.get_shape()
@@ -112,14 +137,21 @@ class bnn_model(object):
       
         #self.loglike = tf.reduce_sum(tf.log(tf.clip_by_value(tr5, 1e-20, 1e+20)), [1])
         
-        self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(tf.reshape(self.pred, [-1, shape[-1]]), tf.tile(self.t, [self.n_samples, 1])))
-        
-        self.acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(tf.reduce_mean(self.pred, [0]), 1), tf.argmax(self.t, 1))))
-       
-        self.log_q_pos = tf.reduce_sum([layer.log_q_pos for layer in self.layers])
-        self.log_p_pri = tf.reduce_sum([layer.log_p_pri for layer in self.layers])
-        #print self.loglike.get_shape()
-        #print self.log_q_pos.get_shape()
+        with tf.name_scope('terminal'):
+            self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(tf.reshape(self.pred, [-1, shape[-1]]), tf.tile(self.t, [self.n_samples, 1])), name = 'loglike')
+
+            self.acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(tf.reduce_mean(self.pred, [0]), 1), tf.argmax(self.t, 1))), name = 'accuracy')
+
+            self.log_q_pos = tf.reduce_sum([layer.log_q_pos for layer in self.layers], name = 'total_lqpos')
+            self.log_p_pri = tf.reduce_sum([layer.log_p_pri for layer in self.layers], name = 'total_lppri')
+            
+            tf.summary.scalar('loglike', self.loglike)
+            tf.summary.scalar('log_q_pos', self.log_q_pos)
+            tf.summary.scalar('log_p_pri', self.log_p_pri)
+            tf.summary.scalar('accuracy', self.acc)
+            
+            #print self.loglike.get_shape()
+            #print self.log_q_pos.get_shape()
      
         self.n_batches = tf.cast(size_data / size_batch, tf.float32).eval()
         self.init_kl = tf.cast(2.0**self.n_batches / (2.0**self.n_batches - 1.0), tf.float32).eval()
@@ -138,7 +170,9 @@ class bnn_model(object):
         self.p_params = [p for layer in self.layers for p in layer.p_params]
         
         self.init_lr = lr
-        self.learning_rate = tf.Variable(tf.constant(lr), dtype = tf.float32)
+        with tf.name_scope('learning_rate'):
+            self.learning_rate = tf.Variable(tf.constant(lr), dtype = tf.float32)
+            tf.summary.scalar('learning_rate', self.learning_rate)
         #self.train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
         self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
         
