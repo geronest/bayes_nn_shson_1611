@@ -28,42 +28,59 @@ def dummyfunc(x):
 
 class bnn_layer(object):
     
-    def __init__(self, inp, shape, sb, mu, rhos, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid, layernum = 0, train_rho = True):
+    def __init__(self, inp, shape, sb, mu, rho, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid, layernum = 0 ):
         with tf.name_scope('layer' + str(layernum)):
             shape[0] += 1
             with tf.name_scope('q_pos'):
                 self.w = tf.Variable(tf.truncated_normal(shape, stddev = mu), dtype = tf.float32, name = 'mu')
-                self.r = tf.Variable(tf.truncated_normal(shape, stddev = rhos[0]), dtype = tf.float32, name = 'rho', trainable = train_rho)
+                #self.r = tf.Variable(tf.truncated_normal(shape, stddev = rho), dtype = tf.float32, name = 'rho', trainable = False)
+                self.r = tf.Variable(tf.truncated_normal(shape, stddev = rho), dtype = tf.float32, name = 'rho')
                 self.n_samples = n_samples
                 variable_summaries(self.w)
                 variable_summaries(self.r)
 
             with tf.name_scope('p_pri'):
                 self.p_w = tf.Variable(tf.constant(0.0, shape = shape), trainable = False, dtype = tf.float32, name = 'p_mu')
-                self.p_r = tf.Variable(tf.constant(rhos[1], shape = shape), trainable = False, dtype = tf.float32, name = 'p_rho')
-                self.p_bgr = tf.Variable(tf.constant(rhos[2], shape = shape), trainable = False, dtype = tf.float32)
+                self.p_r = tf.Variable(tf.constant(5.0, shape = shape), trainable = False, dtype = tf.float32, name = 'p_rho')
+                self.p_bgr = tf.Variable(tf.constant(10.0, shape = shape), trainable = False, dtype = tf.float32)
                 variable_summaries(self.p_w)
                 variable_summaries(self.p_r)
 
-            self.e = tf.random_normal([self.n_samples, shape[0], shape[1]], seed = rseed)           
-            self.c_w = self.w + rhoact(self.r) * self.e
-            self.q_pos = normpdf(self.c_w, self.w, rhoact(self.r))
-            self.p_pri = 0.8 * normpdf(self.c_w, self.p_w, rhoact(self.p_r))\
-                         + 0.2 * normpdf(self.c_w, self.p_w, rhoact(self.p_bgr))
+            self.e = tf.random_normal([self.n_samples, shape[0], shape[1]], seed = rseed)
+            self.w3 = tf.tile(tf.expand_dims(self.w, 0), [self.n_samples, 1, 1])
+            self.r3 = tf.tile(tf.expand_dims(self.r, 0), [self.n_samples, 1, 1])
+            self.p_w3 = tf.tile(tf.expand_dims(self.p_w, 0), [self.n_samples, 1, 1])                         
+            self.p_r3 = tf.tile(tf.expand_dims(self.p_r, 0), [self.n_samples, 1, 1])
+            self.p_bgr3 = tf.tile(tf.expand_dims(self.p_bgr, 0), [self.n_samples, 1, 1])                       
 
-            shape_inp = tf.shape(inp)
-            iones = tf.ones(shape = [shape_inp[0], shape_inp[1], 1])
-            #iones2 = tf.reduce_mean(iones, 2, keep_dims = True)
-            newinp = tf.concat(2, [inp, iones])
+            self.c_w = self.w3 + rhoact(self.r3) * self.e
+            self.q_pos = normpdf(self.c_w, self.w3, rhoact(self.r3))
+            self.p_pri = 0.8 * normpdf(self.c_w, self.p_w3, rhoact(self.p_r3))\
+                         + 0.2 * normpdf(self.c_w, self.p_w3, rhoact(self.p_bgr3))
+
+            #test = tf.range(sb)
+            #iones = tf.constant(1, shape = [shape[0], 1])
+            iones = tf.ones(shape = tf.shape(inp))
+            #print iones.get_shape()
+            #print inp.get_shape()
+            iones2 = tf.reduce_mean(iones, 2, keep_dims = True)
+            newinp = tf.concat(2, [inp, iones2])
+            #print newinp.get_shape()
+
 
             self.pre_o = tf.batch_matmul(newinp, self.c_w)
             self.out = outact(self.pre_o)
             tf.summary.histogram('activation', self.out)
 
+            #self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)), [1, 2])
+            #self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)), [1, 2])
             self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)))
             self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)))
             tf.summary.scalar('log_q_pos', self.log_q_pos)
             tf.summary.scalar('log_p_pri', self.log_p_pri)
+
+            # self.log_q_pos = tf.reduce_sum(tf.log(self.q_pos), [1, 2])
+            # self.log_p_pri = tf.reduce_sum(tf.log(self.p_pri), [1, 2])
 
             self.params = [self.w, self.r]
             self.p_params = [self.p_w, self.p_r]
@@ -72,13 +89,18 @@ class bnn_layer(object):
 
 class bnn_model(object):
     
-    def __init__(self, shape, size_data, size_batch, mu = 0.1, rhos = [0.1, 1.0, 10.0], n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True, train_rho = True):
+    def __init__(self, shape, size_data, size_batch, mu = 0.1, rho = 0.1, n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True):
         
         self.n_layers = len(shape) - 1
         self.n_samples = n_samples
-               
+        
+        #self.x = tf.placeholder(tf.float32, [size_batch, shape[0]])
+        #self.t = tf.placeholder(tf.float32, [size_batch, shape[-1]])
+       
         self.x = tf.placeholder(tf.float32, [None, shape[0]], name = 'x')
         self.t = tf.placeholder(tf.float32, [None, shape[-1]], name = 't')
+            
+        #size_batch = tf.to_int32(tf.shape(self.x)[0])
         
         self.x3 = tf.tile(tf.expand_dims(self.x, 0), [self.n_samples, 1, 1])
         
@@ -91,11 +113,13 @@ class bnn_model(object):
                 inp = self.layers[i-1].out
                 
             if i == self.n_layers-1:
+                #actout = tf.nn.softmax
+                #actout = fsoftmax
                 actout = dummyfunc
             else: 
                 actout = outact
                 
-            self.layers.append(bnn_layer(inp, [shape[i], shape[i+1]], size_batch, mu, rhos, n_samples = self.n_samples, rseed = seed + i, outact = actout, layernum = i, train_rho = train_rho))
+            self.layers.append(bnn_layer(inp, [shape[i], shape[i+1]], size_batch, mu, rho, n_samples = self.n_samples, rseed = seed + i, outact = actout, layernum = i))
             
         self.pred = self.layers[-1].out
         print self.pred.get_shape()
@@ -103,6 +127,16 @@ class bnn_model(object):
         tmaxs = tf.argmax(self.t, 1)
         tshape = tf.shape(self.t)
         
+        
+        '''
+        tr1 = tf.range(tf.to_int32(tshape[0]))
+        tr2 = tr1 * tf.to_int32(tshape[1]) + tf.to_int32(tmaxs)
+        tr3 = tf.tile(tr2, [self.n_samples])
+        tr4 = tf.gather(tf.reshape(self.pred, [-1]), tr3)
+        tr5 = tf.reshape(tr4, [self.n_samples, -1])
+        '''
+      
+        #self.loglike = tf.reduce_sum(tf.log(tf.clip_by_value(tr5, 1e-20, 1e+20)), [1])
         
         with tf.name_scope('terminal'):
             self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(tf.reshape(self.pred, [-1, shape[-1]]), tf.tile(self.t, [self.n_samples, 1])), name = 'loglike')
@@ -117,8 +151,13 @@ class bnn_model(object):
             tf.summary.scalar('log_p_pri', self.log_p_pri)
             tf.summary.scalar('accuracy', self.acc)
             
+            #print self.loglike.get_shape()
+            #print self.log_q_pos.get_shape()
+     
         self.n_batches = tf.cast(size_data / size_batch, tf.float32).eval()
         self.init_kl = tf.cast(2.0**self.n_batches / (2.0**self.n_batches - 1.0), tf.float32).eval()
+        
+        #self.coeff_kl = tf.cast(size_batch / size_data, tf.float32)
         self.coeff_kl = tf.Variable(tf.constant(self.init_kl), trainable = False, dtype = tf.float32)
         
         if kl_reweight:
