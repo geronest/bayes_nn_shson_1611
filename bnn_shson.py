@@ -1,10 +1,12 @@
 import tensorflow as tf
 import numpy as np
-
+import string
 
 
 def variable_summaries(var):
-    with tf.name_scope('summaries'):
+    vname = string.join(var.name.split(":"), "")
+    
+    with tf.name_scope(vname):
         mean = tf.reduce_mean(var)
         tf.summary.scalar('mean', mean)
         with tf.name_scope('stddev'):
@@ -33,7 +35,8 @@ class bnn_layer(object):
             shape[0] += 1
             with tf.name_scope('q_pos'):
                 self.w = tf.Variable(tf.truncated_normal(shape, stddev = mu), dtype = tf.float32, name = 'mu')
-                self.r = tf.Variable(tf.truncated_normal(shape, stddev = rhos[0]), dtype = tf.float32, name = 'rho', trainable = train_rho)
+                #self.r = tf.Variable(tf.truncated_normal(shape, stddev = rhos[0]), dtype = tf.float32, name = 'rho', trainable = train_rho)
+                self.r = tf.Variable(tf.constant(rhos[0], shape = shape), dtype = tf.float32, name = 'rho', trainable = train_rho)
                 self.n_samples = n_samples
                 variable_summaries(self.w)
                 variable_summaries(self.r)
@@ -59,8 +62,8 @@ class bnn_layer(object):
             self.out = outact(self.pre_o)
             tf.summary.histogram('activation', self.out)
 
-            self.log_q_pos = tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)))
-            self.log_p_pri = tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)))
+            self.log_q_pos = tf.reduce_mean(tf.reduce_sum(tf.log(tf.clip_by_value(self.q_pos, 1e-20, 1e+20)), [1, 2]))
+            self.log_p_pri = tf.reduce_mean(tf.reduce_sum(tf.log(tf.clip_by_value(self.p_pri, 1e-20, 1e+20)), [1, 2]))
             tf.summary.scalar('log_q_pos', self.log_q_pos)
             tf.summary.scalar('log_p_pri', self.log_p_pri)
 
@@ -148,13 +151,22 @@ class bnn_model(object):
     def get_params(self):
         return self.params
     
+    def print_params(self):
+        for layer in self.layers:
+            print "mu: {}".format(tf.reduce_mean(layer.params[0]).eval())
+            print "rho: {}".format(tf.reduce_mean(layer.params[1]).eval())
+            #print "p_mu: {}".format(tf.reduce_mean(layer.p_params[0]).eval())
+            #print "p_rho: {}".format(tf.reduce_mean(layer.p_params[1]).eval()
+            print "p_mu: {}".format(tf.reduce_mean(layer.p_w).eval())
+            print "p_rho: {}".format(tf.reduce_mean(layer.p_r).eval())
+    
     def get_inputs(self):
         return [self.x, self.t]
     
     def update_prior(self):
         for layer in self.layers:
-            layer.p_w.assign(layer.w.eval())
-            layer.p_r.assign(layer.r.eval())
+            layer.p_w.assign(layer.w).eval()
+            layer.p_r.assign(layer.r).eval()
     
     def train(self, feed):
         self.train_op.run(feed_dict = feed)
