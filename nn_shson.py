@@ -43,9 +43,9 @@ class nn_layer(object):
 
             shape_inp = tf.shape(inp)
             iones = tf.ones(shape = [shape_inp[0], 1])
-            newinp = tf.concat(1, [inp, iones])
+            newinp = tf.concat(axis = 1, values = [inp, iones])
 
-            self.pre_o = tf.batch_matmul(newinp, self.w)
+            self.pre_o = tf.matmul(newinp, self.w)
             self.out = outact(self.pre_o)
             tf.summary.histogram('activation', self.out)
 
@@ -89,7 +89,7 @@ class nn_model(object):
         
         
         with tf.name_scope('terminal'):
-            self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(tf.reshape(self.pred, [-1, shape[-1]]), self.t), name = 'loglike')
+            self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits = tf.reshape(self.pred, [-1, shape[-1]]), labels = self.t), name = 'loglike')
 
             self.acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(self.pred, 1), tf.argmax(self.t, 1))), name = 'accuracy')
 
@@ -111,7 +111,7 @@ class nn_model(object):
         if ewc:
             self.gr = tf.train.GradientDescentOptimizer(self.learning_rate).compute_gradients(self.loglike)
             for i in range(self.n_layers):
-                self.loss += tf.reduce_sum(tf.square(self.gr[i][0]) * tf.square(self.params[i] - self.p_params[i]))
+                self.loss += (5 / 2) * tf.reduce_sum(tf.square(self.gr[i][0]) * tf.square(self.params[i] - self.p_params[i]))
             
         self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
         

@@ -56,9 +56,9 @@ class bnn_layer(object):
 
             shape_inp = tf.shape(inp)
             iones = tf.ones(shape = [shape_inp[0], shape_inp[1], 1])
-            newinp = tf.concat(2, [inp, iones])
+            newinp = tf.concat(axis = 2, values = [inp, iones])
 
-            self.pre_o = tf.batch_matmul(newinp, self.c_w)
+            self.pre_o = tf.matmul(newinp, self.c_w)
             self.out = outact(self.pre_o)
             tf.summary.histogram('activation', self.out)
 
@@ -107,7 +107,7 @@ class bnn_model(object):
         
         
         with tf.name_scope('terminal'):
-            self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(tf.reshape(self.pred, [-1, shape[-1]]), tf.tile(self.t, [self.n_samples, 1])), name = 'loglike')
+            self.loglike = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits = tf.reshape(self.pred, [-1, shape[-1]]), labels = tf.tile(self.t, [self.n_samples, 1])), name = 'loglike')
 
             self.acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(tf.reduce_mean(self.pred, [0]), 1), tf.argmax(self.t, 1))), name = 'accuracy')
 
@@ -145,10 +145,14 @@ class bnn_model(object):
         
         if ewc:
             self.train_grad = tf.train.GradientDescentOptimizer(self.learning_rate).compute_gradients(self.loss)
+            print self.train_grad
             self.ewc_grad = list()
             for i in range(len(self.train_grad) / 2):
-                rhomin = tf.reduce_min(softplus(self.train_grad[2*i+1][1]))
+                # rhomin = tf.reduce_min(softplus(self.train_grad[2*i+1][1]))
+                self.ewc_grad.append((self.train_grad[2*i][0] * (softplus(self.p_params[2*i+1])), self.train_grad[2*i][1])) # grad_mu * softplus(prior_rho)
+                '''
                 self.ewc_grad.append((self.train_grad[2*i][0] * (0.3 + softplus(self.train_grad[2*i+1][1])), self.train_grad[2*i][1])) # grad_mu * softplus(rho)
+                '''
                 #self.ewc_grad.append((self.train_grad[2*i][0], self.train_grad[2*i][1])) # grad_mu * softplus(rho)
                 self.ewc_grad.append(self.train_grad[2*i+1])
             self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).apply_gradients(self.ewc_grad)
