@@ -1,4 +1,5 @@
-import os, sys, time, datetime
+import os, sys, time, datetime, random
+import numpy as np
 
 def get_datetime():
     return datetime.datetime.now().isoformat()
@@ -28,3 +29,12 @@ def make_savedir(path = ""):
     if not os.path.exists(savedir):
         os.makedirs(savedir)
     return savedir
+
+
+def shuffle_data(data):
+    dlen = range(len(data))
+    random.shuffle(dlen)
+        
+    return np.array(data)[dlen]
+    
+    
