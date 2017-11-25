@@ -282,7 +282,7 @@ class exp_manager(object):
             legends.append('val_task{}'.format(i))
         #plt.legend(legends, loc = 3)
         curr_axis = plt.axis()
-        plt.axis([curr_axis[0], curr_axis[1], 0, 1])  
+        plt.axis([curr_axis[0], curr_axis[1]+1, 0, 1])  
         plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
         plt.xlabel('epochs')
         plt.ylabel('val.acc.')
@@ -294,7 +294,7 @@ class exp_manager(object):
         plt.title("Performance averaged over tasks")
         plt.plot(self.avg_perf[-1], 'r')
         curr_axis = plt.axis()
-        plt.axis([curr_axis[0], curr_axis[1], 0, 1])
+        plt.axis([curr_axis[0], curr_axis[1]+1, 0, 1])
         for ep_end in self.task_ends[-1]:
             plt.axvline(ep_end, color = 'k', ls = ':')
         plt.xlabel('epochs')
@@ -370,7 +370,7 @@ if __name__ == "__main__":
     legends.append('DNN_L2')
     
     curr_axis = plt.axis()
-    plt.axis([curr_axis[0], curr_axis[1], 0, 1])  
+    plt.axis([curr_axis[0], curr_axis[1]+1, 0, 1])  
     plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
     #plt.legend(legends, loc = 3)
     plt.xlabel('num. of tasks')
@@ -459,7 +459,7 @@ if __name__ == "__main__":
     legends.append('obn_nrs')
     
     curr_axis = plt.axis()
-    plt.axis([curr_axis[0], curr_axis[1], 0, 1])  
+    plt.axis([curr_axis[0], curr_axis[1]+1, 0, 1])  
     plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
     #plt.legend(legends, loc = 3)
     plt.xlabel('num. of tasks')
