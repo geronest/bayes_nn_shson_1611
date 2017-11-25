@@ -33,7 +33,6 @@ class bnn_layer(object):
     def __init__(self, inp, shape, sb, mu, rhos, n_samples, rseed, rhoact = softplus, outact = tf.sigmoid, layernum = 0, train_rho = True):
         with tf.name_scope('layer' + str(layernum)):
             shape[0] += 1
-            self.shape = shape
             with tf.name_scope('q_pos'):
                 self.w = tf.Variable(tf.truncated_normal(shape, stddev = mu), dtype = tf.float32, name = 'mu')
                 #self.r = tf.Variable(tf.truncated_normal(shape, stddev = rhos[0]), dtype = tf.float32, name = 'rho', trainable = train_rho)
@@ -82,10 +81,6 @@ class bnn_model(object):
                
         self.x = tf.placeholder(tf.float32, [None, shape[0]], name = 'x')
         self.t = tf.placeholder(tf.float32, [None, shape[-1]], name = 't')
-        
-        self.rhos = rhos
-        self.mu = mu
-        self.shape = shape
         
         self.x3 = tf.tile(tf.expand_dims(self.x, 0), [self.n_samples, 1, 1])
         
@@ -189,7 +184,7 @@ class bnn_model(object):
         for layer in self.layers:
             layer.p_w.assign(layer.w).eval()
             layer.p_r.assign(layer.r).eval()
-    
+            
     def reset_q_params(self):
         for layer in self.layers:
             layer.r.assign(tf.constant(self.rhos[0], shape = layer.shape)).eval()
@@ -211,7 +206,7 @@ class bnn_model(object):
     def validate(self, feed):
         return self.acc.eval(feed_dict = feed)
         
-    def decay_lr(self, rate_decay = 0.5, limit_decay = 1e-10):
+    def decay_lr(self, rate_decay = 0.5, limit_decay = 1e-8):
         if self.learning_rate.eval() > limit_decay:
             self.learning_rate.assign(self.learning_rate.eval() * rate_decay).eval()
             

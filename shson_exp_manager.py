@@ -31,10 +31,14 @@ def make_savedir(path = ""):
     return savedir
 
 
-def shuffle_data(data):
-    dlen = range(len(data))
+def shuffle_data(x_data, t_data):
+    dlen = range(len(t_data))
     random.shuffle(dlen)
+    
+    res_x = list()
+    for xd in x_data:
+        res_x.append(np.array(xd)[dlen])
         
-    return np.array(data)[dlen]
+    return res_x, np.array(t_data)[dlen]
     
     

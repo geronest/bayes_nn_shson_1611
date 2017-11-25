@@ -30,7 +30,7 @@ def dummyfunc(x):
 
 class nn_layer(object):
     
-    def __init__(self, inp, shape, sb, mu, outact = tf.sigmoid, layernum = 0):
+    def __init__(self, model, inp, shape, sb, mu, outact = tf.sigmoid, layernum = 0, dropout = False):
         with tf.name_scope('layer' + str(layernum)):
             shape[0] += 1
             with tf.name_scope('q_pos'):
@@ -41,6 +41,8 @@ class nn_layer(object):
                 self.p_w = tf.Variable(tf.constant(0.0, shape = shape), trainable = False, dtype = tf.float32, name = 'p_mu')
                 variable_summaries(self.p_w)
 
+            if dropout:
+                inp = tf.nn.dropout(inp, model.keep_probs[layernum])
             shape_inp = tf.shape(inp)
             iones = tf.ones(shape = [shape_inp[0], 1])
             newinp = tf.concat(axis = 1, values = [inp, iones])
@@ -56,15 +58,16 @@ class nn_layer(object):
 
 class nn_model(object):
     
-    def __init__(self, shape, size_data, size_batch, mu = 0.1, outact = tf.sigmoid, seed = 1234, lr = 1e-8, only_loglike = False, ewc = False):
+    def __init__(self, shape, size_data, size_batch, mu = 0.1, outact = tf.sigmoid, seed = 1234, lr = 1e-8, ewc = False, dropout = False, l2_reg = False, reg_penalty = 5):
         
         self.n_layers = len(shape) - 1
         #self.n_samples = n_samples
+        self.size_batch = size_batch
+        self.reg_penalty = reg_penalty
                
         self.x = tf.placeholder(tf.float32, [None, shape[0]], name = 'x')
         self.t = tf.placeholder(tf.float32, [None, shape[-1]], name = 't')
-        
-        #self.x3 = tf.tile(tf.expand_dims(self.x, 0), [self.n_samples, 1, 1])
+        self.keep_probs = tf.placeholder(tf.float32, [self.n_layers], name='keep_probs')
         
         self.layers = list()
         
@@ -79,7 +82,7 @@ class nn_model(object):
             else: 
                 actout = outact
                 
-            self.layers.append(nn_layer(inp, [shape[i], shape[i+1]], size_batch, mu, outact = actout, layernum = i))
+            self.layers.append(nn_layer(self, inp, [shape[i], shape[i+1]], size_batch, mu, outact = actout, layernum = i, dropout = dropout))
             
         self.pred = self.layers[-1].out
         print self.pred.get_shape()
@@ -98,7 +101,6 @@ class nn_model(object):
             
         self.n_batches = tf.cast(size_data / size_batch, tf.float32).eval()
             
-    
         self.params = [p for layer in self.layers for p in layer.params]
         self.p_params = [p for layer in self.layers for p in layer.p_params]
         
@@ -106,28 +108,31 @@ class nn_model(object):
         with tf.name_scope('learning_rate'):
             self.learning_rate = tf.Variable(tf.constant(lr), dtype = tf.float32, trainable = False, name='lr')
             tf.summary.scalar('learning_rate', self.learning_rate)
+
+        self.grads = tf.train.GradientDescentOptimizer(self.learning_rate).compute_gradients(self.loglike)
+        self.gr = list()
         
-        self.loss = self.loglike    
-        if ewc:
-            self.gr = tf.train.GradientDescentOptimizer(self.learning_rate).compute_gradients(self.loglike)
-            for i in range(self.n_layers):
-                self.loss += (5 / 2) * tf.reduce_sum(tf.square(self.gr[i][0]) * tf.square(self.params[i] - self.p_params[i]))
+        for i in range(self.n_layers):
+            self.gr.append(tf.Variable(tf.constant(0.0, shape = [shape[i]+1, shape[i+1]]), trainable = False, dtype = tf.float32, name = 'grads'))
+            
+        self.loss = self.loglike        
+        
+        self.loss_reg = self.loglike
+        for i in range(self.n_layers):
+            if ewc:
+                self.loss_reg += (self.reg_penalty / 2.) * tf.reduce_sum(self.gr[i] * tf.square(self.params[i] - self.p_params[i]))
+            elif l2_reg: 
+                self.loss_reg += (self.reg_penalty / 2.) * tf.reduce_sum(tf.square(self.params[i] - self.p_params[i]))
             
         self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
+        self.train_op_reg = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss_reg) 
         
-        '''
-        if ewc:
-            self.train_grad = tf.train.GradientDescentOptimizer(self.learning_rate).compute_gradients(self.loss)
-            self.ewc_grad = list()
-            for i in range(len(self.train_grad) / 2):
-                rhomin = tf.reduce_min(softplus(self.train_grad[2*i+1][1]))
-                self.ewc_grad.append((self.train_grad[2*i][0] * (0.3 + softplus(self.train_grad[2*i+1][1])), self.train_grad[2*i][1])) # grad_mu * softplus(rho)
-                #self.ewc_grad.append((self.train_grad[2*i][0], self.train_grad[2*i][1])) # grad_mu * softplus(rho)
-                self.ewc_grad.append(self.train_grad[2*i+1])
-            self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).apply_gradients(self.ewc_grad)
-        else:
-            self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
-        '''
+        self.f_asgns = list()
+        self.f_asgn_adds = list()
+        
+        for i in range(self.n_layers):
+            self.f_asgns.append(self.gr[i].assign(tf.square(self.grads[i][0])))
+            self.f_asgn_adds.append(self.gr[i].assign_add(tf.square(self.grads[i][0])))
         
         
     def get_loss(self):
@@ -151,26 +156,27 @@ class nn_model(object):
         for layer in self.layers:
             layer.p_w.assign(layer.w).eval()
     
-    '''
-    def train_grads(self):
-        return self.train_grad
-    
-    def ewc_grads(self):
-        return self.ewc_grad
-    
-    def print_ewcgrads(self, feed):
-        for i in range(len(self.ewc_grad)):
-            print self.ewc_grad[i][1].name
-            print "max: {}, min: {}, mean: {}, std: {}".format(np.max(self.ewc_grad[i][0].eval(feed)), np.min(self.ewc_grad[i][0].eval(feed)), np.mean(self.ewc_grad[i][0].eval(feed)), np.std(self.ewc_grad[i][0].eval(feed)))
-    '''
-    
+    def calculate_fisher(self, feed, i):
+        if i < 1:
+            for j in range(self.n_layers):
+                self.f_asgns[j].eval(feed_dict = feed)
+        else:
+            for j in range(self.n_layers):
+                self.f_asgn_adds[j].eval(feed_dict = feed)
+        
+    def train(self, feed, i):
+        if i < 1:
+            self.train_op.run(feed_dict = feed)
+        else: 
+            self.train_op_reg.run(feed_dict = feed)
+    '''    
     def train(self, feed):
         self.train_op.run(feed_dict = feed)
-        
+    '''    
     def validate(self, feed):
         return self.acc.eval(feed_dict = feed)
         
-    def decay_lr(self, rate_decay = 0.5, limit_decay = 1e-8):
+    def decay_lr(self, rate_decay = 0.5, limit_decay = 1e-10):
         if self.learning_rate.eval() > limit_decay:
             self.learning_rate.assign(self.learning_rate.eval() * rate_decay).eval()
             
