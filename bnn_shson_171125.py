@@ -75,10 +75,11 @@ class bnn_layer(object):
 
 class bnn_model(object):
     
-    def __init__(self, shape, size_data, size_batch, mu = 0.1, rhos = [0.1, 1.0, 10.0], n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False, norm_coeff = 1):
+    def __init__(self, shape, size_data, size_batch, mu = 0.1, rhos = [0.1, 1.0, 10.0], n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False, pri_type = 0, pri_coeff = 1):
         
         self.n_layers = len(shape) - 1
         self.n_samples = n_samples
+        self.pri_type = pri_type
                
         self.x = tf.placeholder(tf.float32, [None, shape[0]], name = 'x')
         self.t = tf.placeholder(tf.float32, [None, shape[-1]], name = 't')
@@ -142,12 +143,15 @@ class bnn_model(object):
         
         self.update_pw = list()
         self.update_pr = list()
-        self.update_pr_norm = list()
+        self.update_pr_alt = list()
         
         for layer in self.layers:
             self.update_pw.append(layer.p_w.assign(layer.w))
             self.update_pr.append(layer.p_r.assign(layer.r))
-            self.update_pr_norm.append(layer.p_r.assign(norm_coeff * (layer.r - (tf.reduce_max(layer.r) + tf.reduce_min(layer.r))/2) / (tf.reduce_max(layer.r) - tf.reduce_min(layer.r))))
+            if self.pri_type == 1:
+                self.update_pr_alt.append(layer.p_r.assign(pri_coeff * (layer.r - (tf.reduce_max(layer.r) + tf.reduce_min(layer.r))/2) / (tf.reduce_max(layer.r) - tf.reduce_min(layer.r))))
+            elif self.pri_type == 2:
+                self.update_pr_alt.append(layer.p_r.assign(layer.r + pri_coeff))
         
         self.init_lr = lr
         with tf.name_scope('learning_rate'):
@@ -194,17 +198,15 @@ class bnn_model(object):
     def get_inputs(self):
         return [self.x, self.t]
     
-    def update_prior(self, prior_normalize = False):
+    def update_prior(self, pri_type = 0):
         for i in range(self.n_layers):
             #layer.p_w.assign(layer.w).eval()
             self.update_pw[i].eval()
-            if prior_normalize:
-                self.update_pr_norm[i].eval()
-                # (r - min(r)) / (max(r) - min(r))
-                #layer.p_r.assign((layer.r - tf.min(layer.r)) / (tf.max(layer.r) - tf.min(layer.r))).eval()
-            else:
+            if self.pri_type == 0:
                 self.update_pr[i].eval()
-                #layer.p_r.assign(layer.r).eval()
+                # (r - min(r)) / (max(r) - min(r))
+            else:
+                self.update_pr_alt[i].eval()
     
     def reset_q_params(self):
         for layer in self.layers:

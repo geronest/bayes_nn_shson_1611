@@ -87,6 +87,47 @@ class exp_manager(object):
             
         print ("multiply_data with {} tasks done.".format(num_tasks))
         
+    
+    def dist_data(self, data_x, data_t, sp_labels, n_labels = 10):
+        num_split = len(sp_labels)
+        res_x = list()
+        res_t = list()
+
+        for i in range(num_split):
+            res_x.append(list())
+            res_t.append(list())
+
+        for i in range(len(data_t)):
+            ti = data_t[i]
+            for j in range(num_split):
+                if ti in sp_labels[j]: # label found in sp_labels[j], add this element
+                    res_x[j].append(data_x[i])
+                    res_t[j].append(ti)
+
+        res_x = np.array(res_x)
+        res_t = np.array(res_t)
+
+        for i in range(num_split):
+            res_t[i] = num_to_onehot(res_t[i], n_labels)
+
+        return res_x, res_t
+
+    def split_data(self, data, label_per_split = 2, num_labels = 10, resolution = 784, index_data = []):
+
+        num_split = num_labels / label_per_split
+        split_labels = list()
+        slabel = 0
+        for i in range(num_split):
+            split_labels.append(list())
+            for j in range(label_per_split):
+                split_labels[-1].append(slabel)
+                slabel += 1
+        print split_labels
+
+        self.x_train, self.t_train = dist_data(data['train_data'][()], data['train_label'][()], split_labels, num_labels)
+        self.x_valid, self.t_valid = dist_data(data['valid_data'][()], data['valid_label'][()], split_labels, num_labels)
+        self.x_test, self.t_test = dist_data(data['test_data'][()], data['test_label'][()], split_labels, num_labels)    
+        
     def init_session(self):
         try:
             tf.reset_default_graph()
@@ -104,7 +145,7 @@ class exp_manager(object):
         
     # kind_model is either 'bnn' or 'nn'
     def train(self, name_train, n_epochs, patience = 3, vdec_range = 20, fs_decay = False, fs_range = 25,\
-              update_prior = False, dropout = False, ewc = False, l2_reg = False, supgrad = False, reset_q_params = False, norm_pri = False, kind_model = 'bnn'):
+              update_prior = False, dropout = False, ewc = False, l2_reg = False, supgrad = False, reset_q_params = False, pri_type = 0, kind_model = 'bnn', kind_prob = 'permute'): # kind_prob is either 'permute' or 'split'
         
         name_rec = self.savedir + "train_" + name_train + get_timedir()
         file_rec = open(name_rec + ".txt", 'w')
@@ -123,10 +164,11 @@ class exp_manager(object):
         n_datas = self.num_tasks
 
         n_epochs = n_epochs
-        n_batches = len(self.t_train) / self.batch_size
+        if kind_prob == 'permute': n_batches = len(self.t_train) / self.batch_size
+        elif kind_prob == 'split': n_batches = len(self.t_train[0]) / self.batch_size
         patience_exp = patience
         acc_ends = 0
-
+        
         fs = list()
         qs = list()
         ps = list()
@@ -146,13 +188,17 @@ class exp_manager(object):
             #fs_mean = list()
             
             for ep in range(n_epochs):
-                self.x_train, self.t_train = shuffle_data(self.x_train, self.t_train) # SGD
+                self.x_train, self.t_train = shuffle_data(self.x_train, self.t_train, kind_prob) # SGD
                 
                 for i in range(n_batches):
                     break_ep = False
-
-                    feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
-                            self.model.t: self.t_train[i*batch_size:(i+1)*batch_size]}
+                    
+                    if kind_prob == 'permute': 
+                        feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
+                                self.model.t: self.t_train[i*batch_size:(i+1)*batch_size]}
+                    elif kind_prob == 'split': 
+                        feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
+                                self.model.t: self.t_train[d][i*batch_size:(i+1)*batch_size]}
 
                     if kind_model == 'bnn':
                         v_f, v_q, v_p, v_l = self.model.get_fqpl(feed)
@@ -197,7 +243,10 @@ class exp_manager(object):
 
                 str_vacc = "data %d, ep %d, valid accuracy:"%(d, ep)
                 for i in range(n_datas): 
-                    vaccs[i].append(self.model.validate({self.model.x: self.x_valid[i], self.model.t: self.t_valid}))
+                    if kind_prob == 'permute': 
+                        vaccs[i].append(self.model.validate({self.model.x: self.x_valid[i], self.model.t: self.t_valid}))
+                    elif kind_prob == 'split': 
+                        vaccs[i].append(self.model.validate({self.model.x: self.x_valid[i], self.model.t: self.t_valid[i]}))
                     str_vacc += " {:.5g}".format(vaccs[i][-1])
                     
                 avg_vacc = np.mean(np.array(last_accs(vaccs, d+1)))    
@@ -207,8 +256,12 @@ class exp_manager(object):
                 taccs.append(train_accuracy)
                 print(str_vacc)
                 file_rec.write(str_vacc + "\n")
-
-                summary = self.sess.run(self.merged, feed_dict ={self.model.x: self.x_valid[d], self.model.t: self.t_valid})
+                
+                if kind_prob == 'permute': 
+                    summary = self.sess.run(self.merged, feed_dict ={self.model.x: self.x_valid[d], self.model.t: self.t_valid})
+                elif kind_prob == 'split': 
+                    summary = self.sess.run(self.merged, feed_dict ={self.model.x: self.x_valid[d], self.model.t: self.t_valid[d]})
+                    
                 self.test_writer.add_summary(summary, (d+1)*(ep+1))
                 
                 if break_ep: break
@@ -239,14 +292,18 @@ class exp_manager(object):
             
             if kind_model == 'nn' and ewc:
                 for i in range(n_batches):
-                    feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
-                            self.model.t: self.t_train[i*batch_size:(i+1)*batch_size]}
+                    if kind_prob == 'permute': 
+                        feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
+                                self.model.t: self.t_train[i*batch_size:(i+1)*batch_size]}
+                    elif kind_prob == 'split': 
+                        feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
+                                self.model.t: self.t_train[d][i*batch_size:(i+1)*batch_size]}
                     self.model.calculate_fisher(feed, i)
-                #self.model.print_fisher()
+                
                 self.model.average_fisher({self.model.num_batch: [n_batches]})
                 self.model.print_fisher()
                 
-            if update_prior: self.model.update_prior(norm_pri)
+            if update_prior: self.model.update_prior(pri_type)
             if reset_q_params: self.model.reset_q_params()
         
         time_train = elapsed_time(time_train_start)
@@ -265,7 +322,10 @@ class exp_manager(object):
         
         str_testacc = "\n#####\ntest accuracy: "
         for i in range(n_datas):
-            test_accs.append(self.model.validate({self.model.x: self.x_test[i], self.model.t: self.t_test}))
+            if kind_prob == 'permute': 
+                test_accs.append(self.model.validate({self.model.x: self.x_test[i], self.model.t: self.t_test}))
+            elif kind_prob == 'split':
+                test_accs.append(self.model.validate({self.model.x: self.x_test[i], self.model.t: self.t_test[i]}))
             str_testacc += " {:.5g}".format(test_accs[-1])
         avg_testacc = np.mean(np.array(test_accs))    
         str_testacc += ", avg: {:.5g}".format(avg_testacc)
@@ -327,126 +387,16 @@ if __name__ == "__main__":
     expmng = exp_manager(mnist, name_dir = "dnn")
     expmng.multiply_data(expmng.data, expmng.num_tasks, 784)
     
-    '''
-    ### Normal DNN
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = False, l2_reg = False, reg_penalty = 5)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_784_100_10_1e-5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = False, reset_q_params = False)
-    
-    ### DNN + EWC
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = True, l2_reg = False, reg_penalty = 5)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_EWC_784_100_10_1e-5_pty5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
-    
-    '''
-    
-    ### DNN + L2_reg + update_prior (transfer L2)
-    '''
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 1e-1)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_transL2_784_100_10_1e-5_pty1e-2_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False)
-    
-    
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 2)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_transL2_784_100_10_1e-5_pty2_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False)
-    
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 5)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_transL2_784_100_10_1e-5_pty5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False)
-    
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 10)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_transL2_784_100_10_1e-5_pty10_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False)
-    
-    # Plot
-    colors = ['b', 'g', 'r', 'c']
-    legends = list()
-    fig = plt.figure(figsize=(10, 10))
-    plt.title("Comparison of task-averaged performances")
-    x_plot = range(1, expmng.num_tasks+1)
-    plt.plot(x_plot, expmng.avg_perf_task[0], colors[(0 % len(colors))], marker = 'o')
-    legends.append('transL2_Lambda2')
-   
-    plt.plot(x_plot, expmng.avg_perf_task[1], colors[(1 % len(colors))], ls = '--', marker = '^')
-    legends.append('transL2_Lambda5')
-    plt.plot(x_plot, expmng.avg_perf_task[2], colors[(2 % len(colors))], ls = '-.', marker = 'd')
-    legends.append('transL2_Lambda10')
-    
-    plt.plot(x_plot, expmng.avg_perf_task[3], colors[(3 % len(colors))], ls = ':', marker = '*')
-    legends.append('transL2_10')
-    
-    curr_axis = plt.axis()
-    plt.axis([0, curr_axis[1]+1, 0, 1])  
-    plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
-    #plt.legend(legends, loc = 3)
-    plt.xlabel('number of tasks')
-    plt.ylabel('averaged performance')
-    plt.savefig("{}avgperfs_dnn.png".format(expmng.savedir))
-    plt.clf()
-    
-    
-    ### DNN + L2_reg (Normal L2)
-    expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 5)
-    expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_L2_784_100_10_1e-5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = True, reset_q_params = False)
-    
-    
-    # Plot
-    colors = ['b', 'g', 'r', 'c']
-    legends = list()
-    fig = plt.figure(figsize=(10, 10))
-    plt.title("Comparison of task-averaged performances")
-    x_plot = range(1, expmng.num_tasks+1)
-    plt.plot(x_plot, expmng.avg_perf_task[0], colors[(0 % len(colors))], marker = 'o')
-    legends.append('DNN')
-   
-    plt.plot(x_plot, expmng.avg_perf_task[1], colors[(1 % len(colors))], ls = '--', marker = '^')
-    legends.append('DNN_EWC')
-    plt.plot(x_plot, expmng.avg_perf_task[2], colors[(2 % len(colors))], ls = '-.', marker = 'd')
-    legends.append('DNN_TransL2')
-    plt.plot(x_plot, expmng.avg_perf_task[3], colors[(3 % len(colors))], ls = ':', marker = '*')
-    legends.append('DNN_L2')
-    
-    curr_axis = plt.axis()
-    plt.axis([0, curr_axis[1]+1, 0, 1])  
-    plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
-    #plt.legend(legends, loc = 3)
-    plt.xlabel('number of tasks')
-    plt.ylabel('averaged performance')
-    plt.savefig("{}avgperfs_dnn.png".format(expmng.savedir))
-    plt.clf()
-    '''
-   
-
+ 
     
     
     
     ### SupGrad_1
     batch_size = 100
-    num_epochs = 400 # 400 for bnn, 2000 for nn
-    vd_range = 20 # 20 for BNN?
+    num_epochs = 40 # 400 for bnn, 2000 for nn
+    vd_range = 2 # 20 for BNN?
+    patience = 1
+    init_lr = 1e-4
     
     expmng = exp_manager(mnist, name_dir = "supgrad")
     expmng.multiply_data(expmng.data, expmng.num_tasks, 784)
@@ -454,50 +404,39 @@ if __name__ == "__main__":
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 2, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_100_10_sqr_rstq_normpri_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, norm_pri = True)
+    expmng.train(name_train ="SupGrad_100_pri2_1_{}".format(init_lr),n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
+
+    ### SupGrad_2
+    expmng.init_session()
+    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 2, pri_coeff = 1) # squared_std?
+    expmng.assign_model(model_bnn)
+    expmng.train(name_train ="SupGrad_400_400_pri2_1_{}".format(init_lr),n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
     
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_100_10_sqr_rstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
-    
+    expmng.train(name_train ="SupGrad_100_pri0_1_{}".format(init_lr),n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
+
     ### SupGrad_2
     expmng.init_session()
     model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_400_400_10_sqr_rstq_normpri_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, norm_pri = True)
+    expmng.train(name_train ="SupGrad_400_400_pri0_1_{}".format(init_lr),n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
     
-    ### SupGrad_2
-    expmng.init_session()
-    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
-    expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_400_400_10_sqr_rstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
     
     '''
-    ### SupGrad_3
-    expmng.init_session()
-    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = False) # squared_std?
-    expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_400_400_10_nsqr_nrstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = False)
-    
-    ### SupGrad_4
-    expmng.init_session()
-    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
-    expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_400_400_10_sqr_nrstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = False)
-    
     ### OnlineBNN_1
     expmng.init_session()
     model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
@@ -517,32 +456,23 @@ if __name__ == "__main__":
     
     # Plot
     colors = ['b', 'g', 'r', 'c']
+    markers = ['o', '^', 'd', '*', 's']
+    lss = ['-', '--', '-.']
     legends = list()
-    fig = plt.figure(figsize=(10, 10))
+    fig = plt.figure(figsize=(12, 12))
     plt.title("Comparison of task-averaged performances")
     x_plot = range(1, expmng.num_tasks+1)
-    plt.plot(x_plot, expmng.avg_perf_task[0], colors[(0 % len(colors))], marker = 'o')
-    legends.append('100_10_normpri')
-    plt.plot(x_plot, expmng.avg_perf_task[1], colors[(1 % len(colors))], ls = '--', marker = '^')
-    legends.append('100_10')
-    plt.plot(x_plot, expmng.avg_perf_task[2], colors[(2 % len(colors))], ls = '-.', marker = 'd')
-    legends.append('400_400_10_normpri')
-    plt.plot(x_plot, expmng.avg_perf_task[3], colors[(3 % len(colors))], ls = ':', marker = '*')
-    legends.append('400_400_10')
+    for i in range(len(tasks)):
+        plt.plot(x_plot, expmng.avg_perf_task[i], colors[(i % len(colors))], ls = lss[(i % len(lss))], marker = markers[(i % len(markers))])
+        legends.append(tasks[i])
     
-    '''
-    plt.plot(x_plot, expmng.avg_perf_task[4], colors[(4 % len(colors))], marker = "h")
-    legends.append('obn_rs')
-    plt.plot(x_plot, expmng.avg_perf_task[5], colors[(5 % len(colors))], ls = '--', marker = "s")
-    legends.append('obn_nrs')
-    '''
     curr_axis = plt.axis()
     plt.axis([0, curr_axis[1]+1, 0, 1])  
     plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
     #plt.legend(legends, loc = 3)
     plt.xlabel('number of tasks')
     plt.ylabel('averaged performance')
-    plt.savefig("{}avgperfs_bnn.png".format(expmng.savedir))
+    plt.savefig("{}avgperfs_dnn.png".format(expmng.savedir))
     plt.clf()
     
     

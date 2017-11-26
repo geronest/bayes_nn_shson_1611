@@ -31,14 +31,25 @@ def make_savedir(path = ""):
     return savedir
 
 
-def shuffle_data(x_data, t_data):
-    dlen = range(len(t_data))
-    random.shuffle(dlen)
+def shuffle_data(x_data, t_data, kind_prob = 'permute'):
+    if kind_prob == 'permute': 
+        dlen = range(len(t_data))
+        random.shuffle(dlen)
+        res_x = list()
+        for xd in x_data:
+            res_x.append(np.array(xd)[dlen])
+            
+        return res_x, np.array(t_data)[dlen]
     
-    res_x = list()
-    for xd in x_data:
-        res_x.append(np.array(xd)[dlen])
+    elif kind_prob == 'split': 
+        res_x = list()
+        res_t = list()
+        for i in range(len(x_data)):
+            dlen = range(len(t_data[i]))
+            random.shuffle(dlen)
+            res_x.append(np.array(x_data[i])[dlen])
+            res_t.append(np.array(t_data[i])[dlen])
         
-    return res_x, np.array(t_data)[dlen]
+        return res_x, res_t
     
     

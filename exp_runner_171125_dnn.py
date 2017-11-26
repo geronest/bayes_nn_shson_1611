@@ -104,7 +104,7 @@ class exp_manager(object):
         
     # kind_model is either 'bnn' or 'nn'
     def train(self, name_train, n_epochs, patience = 3, vdec_range = 20, fs_decay = False, fs_range = 25,\
-              update_prior = False, dropout = False, ewc = False, l2_reg = False, supgrad = False, reset_q_params = False, norm_pri = False, kind_model = 'bnn'):
+              update_prior = False, dropout = False, ewc = False, l2_reg = False, supgrad = False, reset_q_params = False, pri_type = 0, kind_model = 'bnn'):
         
         name_rec = self.savedir + "train_" + name_train + get_timedir()
         file_rec = open(name_rec + ".txt", 'w')
@@ -247,7 +247,7 @@ class exp_manager(object):
                 self.model.print_fisher()
                 
                 
-            if update_prior: self.model.update_prior(norm_pri)
+            if update_prior: self.model.update_prior(pri_type)
             if reset_q_params: self.model.reset_q_params()
         
         time_train = elapsed_time(time_train_start)
