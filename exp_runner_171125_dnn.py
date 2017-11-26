@@ -6,8 +6,8 @@ matplotlib.rcParams.update({'figure.subplot.bottom' : 0.15})
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-from bnn_shson_171115 import *
-import nn_shson_171123 as nn_shson
+from bnn_shson_171125 import *
+import nn_shson_171125 as nn_shson
 from shson_exp_manager import *
 import h5py
 import random
@@ -104,7 +104,7 @@ class exp_manager(object):
         
     # kind_model is either 'bnn' or 'nn'
     def train(self, name_train, n_epochs, patience = 3, vdec_range = 20, fs_decay = False, fs_range = 25,\
-              update_prior = False, dropout = False, ewc = False, l2_reg = False, supgrad = False, reset_q_params = False, kind_model = 'bnn'):
+              update_prior = False, dropout = False, ewc = False, l2_reg = False, supgrad = False, reset_q_params = False, norm_pri = False, kind_model = 'bnn'):
         
         name_rec = self.savedir + "train_" + name_train + get_timedir()
         file_rec = open(name_rec + ".txt", 'w')
@@ -124,7 +124,7 @@ class exp_manager(object):
 
         n_epochs = n_epochs
         n_batches = len(self.t_train) / self.batch_size
-        patience = patience
+        patience_exp = patience
         acc_ends = 0
 
         fs = list()
@@ -213,18 +213,23 @@ class exp_manager(object):
                 
                 if break_ep: break
                 if ep > (vdec_range * 2) and np.mean(vaccs[d][-(vdec_range * 2):-vdec_range]) >= np.mean(vaccs[d][-vdec_range:]):
-                    last_lr = self.model.get_lr()
-                    self.model.decay_lr()
-
-                    if self.model.get_lr() == last_lr:
-                        print(msg_taskskip)
-                        file_rec.write(msg_taskskip)
-                        self.valids_per_task[-1].append(last_accs(vaccs, n_datas))
-                        self.avg_perf_task[-1].append(np.mean(np.array(last_accs(vaccs, d+1))))
-                        acc_ends += (ep+1)
-                        self.task_ends[-1].append(acc_ends)
-                        break_ep = True
-                        break
+                    if patience_exp == 0: 
+                        last_lr = self.model.get_lr()
+                        self.model.decay_lr()
+                        patience_exp = patience
+                        
+                        if self.model.get_lr() == last_lr:
+                            print(msg_taskskip)
+                            file_rec.write(msg_taskskip)
+                            self.valids_per_task[-1].append(last_accs(vaccs, n_datas))
+                            self.avg_perf_task[-1].append(np.mean(np.array(last_accs(vaccs, d+1))))
+                            acc_ends += (ep+1)
+                            self.task_ends[-1].append(acc_ends)
+                            break_ep = True
+                            break
+                    else:
+                        patience_exp -= 1      
+                        
 
             if not break_ep: 
                 self.valids_per_task[-1].append(last_accs(vaccs, n_datas))
@@ -237,8 +242,12 @@ class exp_manager(object):
                     feed = {self.model.x: self.x_train[d][i*batch_size:(i+1)*batch_size], \
                             self.model.t: self.t_train[i*batch_size:(i+1)*batch_size]}
                     self.model.calculate_fisher(feed, i)
+                #self.model.print_fisher()
+                self.model.average_fisher({self.model.num_batch: [n_batches]})
+                self.model.print_fisher()
                 
-            if update_prior: self.model.update_prior()
+                
+            if update_prior: self.model.update_prior(norm_pri)
             if reset_q_params: self.model.reset_q_params()
         
         time_train = elapsed_time(time_train_start)
@@ -327,16 +336,43 @@ if __name__ == "__main__":
                 lr = 1e-5, ewc = False, l2_reg = False, reg_penalty = 5)
     expmng.assign_model(model_nn)
     expmng.train(name_train ="DNN_784_100_10_1e-5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = False, reset_q_params = False)
-    
+    '''
+   
     ### DNN + EWC
     expmng.init_session()
-    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+    model_nn = nn_shson.nn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, outact = tf.nn.relu, seed = 1234, \
                 lr = 1e-5, ewc = True, l2_reg = False, reg_penalty = 5)
     expmng.assign_model(model_nn)
-    expmng.train(name_train ="DNN_EWC_784_100_10_1e-5_pty5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
+    expmng.train(name_train ="EWC_400_400_pty5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
     
-    '''
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = 1e-5, ewc = True, l2_reg = False, reg_penalty = 5)
+    expmng.assign_model(model_nn)
+    expmng.train(name_train ="EWC_800_800_pty5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
+    
+    colors = ['b', 'g', 'r', 'c']
+    legends = list()
+    fig = plt.figure(figsize=(10, 10))
+    plt.title("Comparison of task-averaged performances")
+    x_plot = range(1, expmng.num_tasks+1)
+    plt.plot(x_plot, expmng.avg_perf_task[0], colors[(0 % len(colors))], marker = 'o')
+    legends.append('EWC_400_400_p5')
+    plt.plot(x_plot, expmng.avg_perf_task[1], colors[(1 % len(colors))], ls = '--', marker = '^')
+    legends.append('EWC_800_800_p5')
+    
+    curr_axis = plt.axis()
+    plt.axis([0, curr_axis[1]+1, 0, 1])  
+    plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
+    #plt.legend(legends, loc = 3)
+    plt.xlabel('number of tasks')
+    plt.ylabel('averaged performance')
+    plt.savefig("{}avgperfs_dnn.png".format(expmng.savedir))
+    plt.clf()
+   
+    
     
     ### DNN + L2_reg + update_prior (transfer L2)
     '''
@@ -346,7 +382,8 @@ if __name__ == "__main__":
                 lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 1e-1)
     expmng.assign_model(model_nn)
     expmng.train(name_train ="DNN_transL2_784_100_10_1e-5_pty1e-2_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False)
-    '''
+    
+    
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, outact = tf.nn.relu, seed = 1234, \
@@ -381,10 +418,10 @@ if __name__ == "__main__":
     legends.append('transL2_Lambda5')
     plt.plot(x_plot, expmng.avg_perf_task[2], colors[(2 % len(colors))], ls = '-.', marker = 'd')
     legends.append('transL2_Lambda10')
-    '''
+    
     plt.plot(x_plot, expmng.avg_perf_task[3], colors[(3 % len(colors))], ls = ':', marker = '*')
     legends.append('transL2_10')
-    '''
+    
     curr_axis = plt.axis()
     plt.axis([0, curr_axis[1]+1, 0, 1])  
     plt.legend(legends, loc = "upper center", bbox_to_anchor=(0.5, -0.075), ncol = 4)
@@ -394,7 +431,7 @@ if __name__ == "__main__":
     plt.savefig("{}avgperfs_dnn.png".format(expmng.savedir))
     plt.clf()
     
-    '''
+    
     ### DNN + L2_reg (Normal L2)
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
@@ -402,8 +439,8 @@ if __name__ == "__main__":
                 lr = 1e-5, ewc = False, l2_reg = True, reg_penalty = 5)
     expmng.assign_model(model_nn)
     expmng.train(name_train ="DNN_L2_784_100_10_1e-5_",n_epochs = num_epochs, kind_model = "nn", patience = 3, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = True, reset_q_params = False)
-    '''
-    '''
+    
+    
     # Plot
     colors = ['b', 'g', 'r', 'c']
     legends = list()
@@ -432,22 +469,22 @@ if __name__ == "__main__":
    
 
     
-    '''
     
-    ### SupGrad_1
+    '''
     batch_size = 100
-    num_epochs = 400 # 400 for bnn, 2000 for nn
+    num_epochs = 4 # 400 for bnn, 2000 for nn
     vd_range = 20 # 20 for BNN?
     
+    ### SupGrad_1
     expmng = exp_manager(mnist, name_dir = "supgrad")
     expmng.multiply_data(expmng.data, expmng.num_tasks, 784)
     
     expmng.init_session()
-    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = False) # squared_std?
+                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
     expmng.assign_model(model_bnn)
-    expmng.train(name_train ="SupGrad_784_400_400_10_nsqr_rstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
+    expmng.train(name_train ="SupGrad_784_400_400_10_sqr_rstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
     
     ### SupGrad_2
     expmng.init_session()
@@ -456,6 +493,22 @@ if __name__ == "__main__":
                 lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
     expmng.assign_model(model_bnn)
     expmng.train(name_train ="SupGrad_784_400_400_10_sqr_rstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True)
+    
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
+    expmng.assign_model(model_bnn)
+    expmng.train(name_train ="SupGrad_784_400_400_10_sqr_rstq_normpri_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, norm_pri = True)
+    
+    ### SupGrad_2
+    expmng.init_session()
+    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True) # squared_std?
+    expmng.assign_model(model_bnn)
+    expmng.train(name_train ="SupGrad_784_400_400_10_sqr_rstq_normpri_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, norm_pri = True)
+    
     
     ### SupGrad_3
     expmng.init_session()
@@ -488,7 +541,8 @@ if __name__ == "__main__":
                 lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
     expmng.assign_model(model_bnn)
     expmng.train(name_train ="OnlineBNN_784_400_400_10_nrstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = False)
-    
+    '''
+    '''
     # Plot
     colors = ['b', 'g', 'r', 'c']
     legends = list()
@@ -496,14 +550,14 @@ if __name__ == "__main__":
     plt.title("Comparison of task-averaged performances")
     x_plot = range(1, expmng.num_tasks+1)
     plt.plot(x_plot, expmng.avg_perf_task[0], colors[(0 % len(colors))], marker = 'o')
-    legends.append('sup_nsq_rs')
-   
+    legends.append('784_100_10_sup_sq_rs')
     plt.plot(x_plot, expmng.avg_perf_task[1], colors[(1 % len(colors))], ls = '--', marker = '^')
-    legends.append('sup_sq_rs')
+    legends.append('784_400_400_10_sup_sq_rs')
     plt.plot(x_plot, expmng.avg_perf_task[2], colors[(2 % len(colors))], ls = '-.', marker = 'd')
-    legends.append('sup_nsq_nrs')
+    legends.append('784_100_10_sup_sq_rs_normpri')
     plt.plot(x_plot, expmng.avg_perf_task[3], colors[(3 % len(colors))], ls = ':', marker = '*')
-    legends.append('sup_sq_nrs')
+    legends.append('784_400_400_10_sup_sq_rs_normpri')
+    
     
     plt.plot(x_plot, expmng.avg_perf_task[4], colors[(4 % len(colors))], marker = "h")
     legends.append('obn_rs')
@@ -518,8 +572,8 @@ if __name__ == "__main__":
     plt.ylabel('averaged performance')
     plt.savefig("{}avgperfs_bnn.png".format(expmng.savedir))
     plt.clf()
-    
     '''
+    
     
     
     

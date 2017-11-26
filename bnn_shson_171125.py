@@ -75,7 +75,7 @@ class bnn_layer(object):
 
 class bnn_model(object):
     
-    def __init__(self, shape, size_data, size_batch, mu = 0.1, rhos = [0.1, 1.0, 10.0], n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False):
+    def __init__(self, shape, size_data, size_batch, mu = 0.1, rhos = [0.1, 1.0, 10.0], n_samples = 10, outact = tf.sigmoid, seed = 1234, lr = 1e-8, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False, norm_coeff = 1):
         
         self.n_layers = len(shape) - 1
         self.n_samples = n_samples
@@ -140,6 +140,15 @@ class bnn_model(object):
         self.params = [p for layer in self.layers for p in layer.params]
         self.p_params = [p for layer in self.layers for p in layer.p_params]
         
+        self.update_pw = list()
+        self.update_pr = list()
+        self.update_pr_norm = list()
+        
+        for layer in self.layers:
+            self.update_pw.append(layer.p_w.assign(layer.w))
+            self.update_pr.append(layer.p_r.assign(layer.r))
+            self.update_pr_norm.append(layer.p_r.assign(norm_coeff * (layer.r - (tf.reduce_max(layer.r) + tf.reduce_min(layer.r))/2) / (tf.reduce_max(layer.r) - tf.reduce_min(layer.r))))
+        
         self.init_lr = lr
         with tf.name_scope('learning_rate'):
             self.learning_rate = tf.Variable(tf.constant(lr), dtype = tf.float32, trainable = False, name='lr')
@@ -185,10 +194,17 @@ class bnn_model(object):
     def get_inputs(self):
         return [self.x, self.t]
     
-    def update_prior(self):
-        for layer in self.layers:
-            layer.p_w.assign(layer.w).eval()
-            layer.p_r.assign(layer.r).eval()
+    def update_prior(self, prior_normalize = False):
+        for i in range(self.n_layers):
+            #layer.p_w.assign(layer.w).eval()
+            self.update_pw[i].eval()
+            if prior_normalize:
+                self.update_pr_norm[i].eval()
+                # (r - min(r)) / (max(r) - min(r))
+                #layer.p_r.assign((layer.r - tf.min(layer.r)) / (tf.max(layer.r) - tf.min(layer.r))).eval()
+            else:
+                self.update_pr[i].eval()
+                #layer.p_r.assign(layer.r).eval()
     
     def reset_q_params(self):
         for layer in self.layers:
