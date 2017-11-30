@@ -186,15 +186,30 @@ class bnn_model(object):
     def get_params(self):
         return self.params
     
-    def print_params(self):
+    def print_params(self, f):
         for layer in self.layers:
-            print "mu: {}".format(tf.reduce_mean(layer.params[0]).eval())
-            print "rho: {}".format(tf.reduce_mean(layer.params[1]).eval())
+            m = layer.w.eval()
+            r = layer.r.eval()
+            pm = layer.p_w.eval()
+            pr = layer.p_r.eval()
+            layer_str = "\n###layer###\n"
+            m_str = "mu: max {}, min {}, mean {}, std {}\n".format(np.max(m), np.min(m), np.mean(m), np.std(m))
+            r_str = "rho: max {}, min {}, mean {}, std {}\n".format(np.max(r), np.min(r), np.mean(r), np.std(r))
+            pm_str = "p_mu: max {}, min {}, mean {}, std {}\n".format(np.max(pm), np.min(pm), np.mean(pm), np.std(pm))
+            pr_str = "p_rho: max {}, min {}, mean {}, std {}\n".format(np.max(pr), np.min(pr), np.mean(pr), np.std(pr))
+            print layer_str
+            print m_str
+            print r_str
             #print "p_mu: {}".format(tf.reduce_mean(layer.p_params[0]).eval())
             #print "p_rho: {}".format(tf.reduce_mean(layer.p_params[1]).eval()
-            print "p_mu: {}".format(tf.reduce_mean(layer.p_w).eval())
-            print "p_rho: {}".format(tf.reduce_mean(layer.p_r).eval())
-    
+            print pm_str
+            print pr_str
+            f.write(layer_str)
+            f.write(m_str)
+            f.write(r_str)
+            f.write(pm_str)
+            f.write(pr_str)
+            
     def get_inputs(self):
         return [self.x, self.t]
     

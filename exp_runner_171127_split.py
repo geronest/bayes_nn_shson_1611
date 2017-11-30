@@ -250,9 +250,7 @@ class exp_manager(object):
 
                 # fs_mean.append(np.mean(fs[-n_batches:]))
                 
-                if supgrad and (ep % (n_epochs / 5) == 0): 
-                    self.model.print_params(file_rec)
-                    #self.model.print_ewcgrads(feed)
+                if supgrad and (ep % 50 == 0): self.model.print_ewcgrads(feed)
 
                 str_vacc = "data %d, ep %d, valid accuracy:"%(d, ep)
                 for i in range(n_datas): 
@@ -399,49 +397,89 @@ if __name__ == "__main__":
     tasks = list()
     
     mnist = h5py.File('mnist.hdf5', 'r')
-    #expmng = exp_manager(mnist, num_tasks = 2, num_labels = 10, name_dir = "split_all")
-    #expmng.split_data(expmng.data, label_per_split = 5, num_labels = 10, resolution = 784)
+    expmng = exp_manager(mnist, num_tasks = 2, num_labels = 10, name_dir = "split_all")
+    expmng.split_data(expmng.data, label_per_split = 5, num_labels = 10, resolution = 784)
     
+    '''
     expmng = exp_manager(mnist, name_dir = "supgrad")
     expmng.multiply_data(expmng.data, expmng.num_tasks, 784)
-    
+    '''
     ### SupGrad_1
     batch_size = 100
-    num_epochs = 40 # 400 for bnn, 2000 for nn
+    num_epochs = 20 # 400 for bnn, 2000 for nn
     vd_range = 2 # 20 for BNN?
-    patience = 1
-    init_lr = 1e-4
+    patience = 0
+    init_lr = 1e-6
+    init_rho = [-5.0, -1.0, 1.0]
  
     
-    '''
-    expmng.init_session()
-    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
-                pri_type = 1, pri_coeff = 2) # squared_std?
-    expmng.assign_model(model_bnn)
-    tasks.append("SpGr_1_pri{}_{}_{}".format(1, 2, init_lr))
-    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
+    # SupGrad
     
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
-                pri_type = 1, pri_coeff = 3) # squared_std?
+                pri_type = 2, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
-    tasks.append("SpGr_1_pri{}_{}_{}".format(1, 3, init_lr))
-    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
-    
-    expmng.init_session()
-    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
-                pri_type = 1, pri_coeff = 4) # squared_std?
-    expmng.assign_model(model_bnn)
-    tasks.append("SpGr_1_pri{}_{}_{}".format(1, 4, init_lr))
+    tasks.append("SpGr_1_pri{}_{}_{}".format(2, 1, init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
     '''
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 1, pri_coeff = 1) # squared_std?
+    expmng.assign_model(model_bnn)
+    tasks.append("SpGr_1_pri{}_{}_{}".format(1, 1, init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
     
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 1, pri_coeff = 0.5) # squared_std?
+    expmng.assign_model(model_bnn)
+    tasks.append("SpGr_1_pri{}_{}_{}".format(1, 0.5, init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
+    
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 1, pri_coeff = 0.25) # squared_std?
+    expmng.assign_model(model_bnn)
+    tasks.append("SpGr_1_pri{}_{}_{}".format(1, 0.25, init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
+    '''
+    
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
+                pri_type = 0, pri_coeff = 1) # squared_std?
+    expmng.assign_model(model_bnn)
+    tasks.append("SpGr_1_pri{}_{}_{}".format(0, 1, init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
+    
+    ### OnlineBNN_1
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
+    expmng.assign_model(model_bnn)
+    expmng.train(name_train ="RBE_1_rstq_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = True, kind_prob = 'split')
+    
+    ### Original BBB
+    expmng.init_session()
+    model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
+                mu = 0.02, rhos = init_rho, n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
+    expmng.assign_model(model_bnn)
+    expmng.train(name_train ="Bayes_BP_1_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, reset_q_params = False, klrw = True, kind_prob = 'split')
+    
+    
+    
+    '''
     expmng.init_session()
     model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
@@ -449,7 +487,7 @@ if __name__ == "__main__":
                 pri_type = 2, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
     tasks.append("SpGr_44_pri2_1_{}".format(init_lr))
-    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'permute')
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
     
     expmng.init_session()
     model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
@@ -458,7 +496,7 @@ if __name__ == "__main__":
                 pri_type = 1, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
     tasks.append("SpGr_44_pri{}_{}_{}".format(1, 1, init_lr))
-    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'permute')
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
 
     expmng.init_session()
     model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
@@ -467,7 +505,7 @@ if __name__ == "__main__":
                 pri_type = 1, pri_coeff = 3) # squared_std?
     expmng.assign_model(model_bnn)
     tasks.append("SpGr_44_pri{}_{}_{}".format(1, 3, init_lr))
-    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'permute')
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
     
     ### SupGrad_2
     expmng.init_session()
@@ -477,7 +515,8 @@ if __name__ == "__main__":
                 pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
     tasks.append("SpGr_44_pri0_1_{}".format(init_lr))
-    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'permute')
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = True, update_prior = True, reset_q_params = True, kind_prob = 'split')
+    
     
     ### OnlineBNN_1
     expmng.init_session()
@@ -485,7 +524,7 @@ if __name__ == "__main__":
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
     expmng.assign_model(model_bnn)
-    expmng.train(name_train ="RBE_44_rstq_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = True)
+    expmng.train(name_train ="RBE_44_rstq_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = True, kind_prob = 'split')
     
     ### Original BBB
     expmng.init_session()
@@ -493,8 +532,8 @@ if __name__ == "__main__":
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
     expmng.assign_model(model_bnn)
-    expmng.train(name_train ="Bayes_BP_44_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, reset_q_params = False, klrw = True)
-    
+    expmng.train(name_train ="Bayes_BP_44_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, reset_q_params = False, klrw = True, kind_prob = 'split')
+    '''
     '''
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
@@ -518,11 +557,11 @@ if __name__ == "__main__":
     '''
     
     batch_size = 100
-    num_epochs = 10 # 400 for bnn, 2000 for nn
+    num_epochs = 20 # 400 for bnn, 2000 for nn
     vd_range = 2 # 20 for BNN?
-    patience = 1
-    init_lr = 1e-4
-    '''
+    patience = 0
+    #init_lr = 1e-7
+    
     ### DNN + EWC
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
@@ -548,12 +587,20 @@ if __name__ == "__main__":
     expmng.assign_model(model_nn)
     tasks.append("EWC_88_p100_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False, kind_prob = 'split')
-    '''
     
-    init_lr = 1e-4
-    num_epochs = 10 # 400 for bnn, 2000 for nn
-    '''
+    
+    #init_lr = 1e-7
+    num_epochs = 20 # 400 for bnn, 2000 for nn
+    
     # DNN
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, ewc = False, l2_reg = False, reg_penalty = 100)
+    expmng.assign_model(model_nn)
+    tasks.append("DNN_1_{}".format(init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = False, reset_q_params = False, kind_prob = 'split')
+    
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 400, 400, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
                 mu = 0.02, outact = tf.nn.relu, seed = 1234, \
@@ -561,7 +608,6 @@ if __name__ == "__main__":
     expmng.assign_model(model_nn)
     tasks.append("DNN_44_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = False, reset_q_params = False, kind_prob = 'split')
-    
     
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
@@ -571,6 +617,23 @@ if __name__ == "__main__":
     tasks.append("DNN_88_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = False, reset_q_params = False, kind_prob = 'split')
     
+    # DNN + L2
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, ewc = False, l2_reg = True, reg_penalty = 10)
+    expmng.assign_model(model_nn)
+    tasks.append("L2_1_p10_{}".format(init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = True, reset_q_params = False, kind_prob = 'split')
+    
+    # DNN + L2-Transfer
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, ewc = False, l2_reg = True, reg_penalty = 10)
+    expmng.assign_model(model_nn)
+    tasks.append("L2Tr_1_p10_{}".format(init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False, kind_prob = 'split')
     
     # DNN + L2
     expmng.init_session()
@@ -594,39 +657,21 @@ if __name__ == "__main__":
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
                 mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = init_lr, ewc = False, l2_reg = True, reg_penalty = 100)
+                lr = init_lr, ewc = False, l2_reg = True, reg_penalty = 10)
     expmng.assign_model(model_nn)
-    tasks.append("L2_88_p100_{}".format(init_lr))
+    tasks.append("L2_88_p10_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, ewc = False, l2_reg = True, reset_q_params = False, kind_prob = 'split')
     
     # DNN + L2-Transfer
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
                 mu = 0.02, outact = tf.nn.relu, seed = 1234, \
-                lr = init_lr, ewc = False, l2_reg = True, reg_penalty = 100)
+                lr = init_lr, ewc = False, l2_reg = True, reg_penalty = 10)
     expmng.assign_model(model_nn)
-    tasks.append("L2Tr_88_p100_{}".format(init_lr))
+    tasks.append("L2Tr_88_p10_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False, kind_prob = 'split')
-    '''
     
     
-    '''
-    ### OnlineBNN_1
-    expmng.init_session()
-    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
-    expmng.assign_model(model_bnn)
-    expmng.train(name_train ="OnlineBNN_784_400_400_10_rstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = True)
-    
-    ### OnlineBNN_2
-    expmng.init_session()
-    model_bnn = bnn_model([784, 400, 400, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
-                lr = 1e-5, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
-    expmng.assign_model(model_bnn)
-    expmng.train(name_train ="OnlineBNN_784_400_400_10_nrstq_1e-5_",n_epochs = num_epochs, patience = 3, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = False)
-    '''
     
     # Plot
     colors = ['b', 'g', 'r', 'c']
