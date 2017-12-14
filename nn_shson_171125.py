@@ -112,17 +112,32 @@ class nn_model(object):
 
         self.grads = tf.train.GradientDescentOptimizer(self.learning_rate).compute_gradients(self.loglike)
         self.gr = list()
+        self.ca = list()
+        self.cb = list()
+        self.cc = list()
         
         for i in range(self.n_layers):
             self.gr.append(tf.Variable(tf.constant(0.0, shape = [shape[i]+1, shape[i+1]]), trainable = False, dtype = tf.float32, name = 'grads'))
+            self.ca.append(tf.Variable(tf.constant(0.0, shape = [shape[i]+1, shape[i+1]]), trainable = False, dtype = tf.float32, name = 'ca'))
+            self.cb.append(tf.Variable(tf.constant(0.0, shape = [shape[i]+1, shape[i+1]]), trainable = False, dtype = tf.float32, name = 'cb'))
+            self.cc.append(tf.Variable(tf.constant(0.0, shape = [shape[i]+1, shape[i+1]]), trainable = False, dtype = tf.float32, name = 'cc'))
             
         self.loss = self.loglike        
         
+        #self.lreg_add = tf.Variable(tf.constant(0.0, shape = []), trainable = False, dtype = tf.float32, name = 'lreg_add')
         self.loss_reg = self.loglike
+        
+                
         for i in range(self.n_layers):
+            
             if ewc:
-                self.loss_reg += (self.reg_penalty / 2.) * tf.reduce_sum(self.gr[i] * tf.square(self.params[i] - self.p_params[i]))
-            elif l2_reg: 
+                self.loss_reg += (self.reg_penalty / 2.) * tf.reduce_sum(self.ca[i] * tf.square(self.params[i])
+                                                                         -2 * self.params[i] * self.cb[i]
+                                                                         + self.cc[i])
+            #    self.lreg_add += (self.reg_penalty / 2.) * tf.reduce_sum(self.gr[i] * tf.square(self.params[i] - self.p_params[i]))
+                
+            
+            if l2_reg: 
                 self.loss_reg += (self.reg_penalty / 2.) * tf.reduce_sum(tf.square(self.params[i] - self.p_params[i]))
             
         self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
@@ -131,11 +146,34 @@ class nn_model(object):
         self.f_asgns = list()
         self.f_asgn_adds = list()
         self.f_avgs = list()
+        #self.loss_adds = self.loss_reg.assign_add(self.lreg_add)
+        self.ca_adds = list()
+        self.cb_adds = list()
+        self.cc_adds = list()
+        self.loss_adds = list()
         
         for i in range(self.n_layers):
             self.f_asgns.append(self.gr[i].assign(tf.square(self.grads[i][0])))
             self.f_asgn_adds.append(self.gr[i].assign_add(tf.square(self.grads[i][0])))
             self.f_avgs.append(self.gr[i].assign(self.gr[i] / self.num_batch))
+            
+            self.ca_adds.append(self.ca[i].assign(self.gr[i]))
+            self.cb_adds.append(self.cb[i].assign(self.gr[i] * self.p_params[i]))
+            self.cc_adds.append(self.cc[i].assign(self.gr[i] * tf.square(self.p_params[i])))
+            
+            '''
+            self.ca_adds.append(self.ca[i].assign_add(self.gr[i]))
+            self.cb_adds.append(self.cb[i].assign_add(self.gr[i] * self.p_params[i]))
+            self.cc_adds.append(self.cc[i].assign_add(self.gr[i] * tf.square(self.p_params[i])))
+            '''
+            
+            '''
+            self.loss_adds.append(self.lreg_add.assign_add((self.reg_penalty / 2.) * 
+                                                           tf.reduce_sum(self.gr[i] * tf.square(self.params[i] - self.p_params[i])
+                                                                        )
+                                                          )
+                                 )
+            '''
         
     def get_loss(self):
         return self.loss
@@ -169,6 +207,15 @@ class nn_model(object):
     def average_fisher(self, feed):
         for i in range(self.n_layers):
             self.f_avgs[i].eval(feed_dict = feed)
+        for i in range(self.n_layers):
+            self.ca_adds[i].eval()
+            self.cb_adds[i].eval()
+            self.cc_adds[i].eval()
+            
+            #self.loss_adds[i].eval()
+        
+    
+    #def update_fisher
     
     def print_fisher(self):        
         for i in range(self.n_layers):

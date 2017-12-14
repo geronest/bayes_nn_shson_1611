@@ -11,7 +11,27 @@ import nn_shson_171125 as nn_shson
 from shson_exp_manager import *
 import h5py
 import random
+import os
 
+
+def draw_ws(data, dims = (28, 28, 10, 10), model = "", tnum = 0, pname = "", name_rec = "./"):
+    dr = data[:-1, :].reshape(dims)
+    res = list()
+    for i in range(dims[2]):
+        temp = list()
+        for j in range(dims[3]):
+            temp.append(dr[:, :, i, j])
+        temp = tuple(temp)
+        res.append(np.concatenate(temp, axis = 1))
+    res = np.concatenate(tuple(res), axis = 0)
+    
+    fig = plt.figure(figsize=(10, 10))
+    plt.title("model: {}, {} th task, {}".format(model, tnum, pname))
+    plt.imshow(res, interpolation = 'nearest', cmap = 'gray')
+    if not os.path.exists(name_rec + model):
+        os.makedirs(name_rec + model)
+    plt.savefig(name_rec + "{}/{}_{}_{}.png".format(model, model, pname, tnum))
+    plt.clf()
 
 def num_to_onehot(nums, n_labels):
     results = list()
@@ -290,6 +310,11 @@ class exp_manager(object):
                             self.avg_perf_task[-1].append(np.mean(np.array(last_accs(vaccs, d+1))))
                             acc_ends += (ep+1)
                             self.task_ends[-1].append(acc_ends)
+                            '''
+                            draw_ws(self.model.layers[0].w.eval(), tnum = d, model = name_train, pname = "mu", name_rec = self.savedir)
+                            if kind_model == 'bnn':
+                                draw_ws(self.model.layers[0].r.eval(), tnum = d, model = name_train, pname = "rho", name_rec = self.savedir)
+                            '''
                             break_ep = True
                             break
                     else:
@@ -301,6 +326,11 @@ class exp_manager(object):
                 self.avg_perf_task[-1].append(np.mean(np.array(last_accs(vaccs, d+1))))
                 acc_ends += (ep+1)
                 self.task_ends[-1].append(acc_ends)
+                '''
+                draw_ws(self.model.layers[0].w.eval(), tnum = d, model = name_train, pname = "mu", name_rec = self.savedir)
+                if kind_model == 'bnn':
+                    draw_ws(self.model.layers[0].r.eval(), tnum = d, model = name_train, pname = "rho", name_rec = self.savedir)
+                '''
             
             if kind_model == 'nn' and ewc:
                 for i in range(n_batches[d]):
@@ -400,7 +430,7 @@ if __name__ == "__main__":
     #expmng = exp_manager(mnist, num_tasks = 2, num_labels = 10, name_dir = "split_all")
     #expmng.split_data(expmng.data, label_per_split = 5, num_labels = 10, resolution = 784)
     
-    expmng = exp_manager(mnist, name_dir = "perm_1")
+    expmng = exp_manager(mnist, name_dir = "perm100_lplot")
     expmng.multiply_data(expmng.data, expmng.num_tasks, 784)
     
     ### SupGrad_1
@@ -410,17 +440,20 @@ if __name__ == "__main__":
     patience = 1
     init_lr = 1e-4
  
+    '''
     ### Original BBB
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
                 mu = 0.02, rhos = [-5.0, 1.0, 10.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = True, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
     expmng.assign_model(model_bnn)
+    tasks.append("BbB_1_{}".format(init_lr))
     expmng.train(name_train ="BbB_1_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = False, reset_q_params = False, klrw = True)
-    
+    '''
+    '''
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = False, \
                 pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
@@ -429,7 +462,7 @@ if __name__ == "__main__":
     
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
                 pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
@@ -438,7 +471,7 @@ if __name__ == "__main__":
     
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
                 pri_type = 2, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
@@ -447,7 +480,7 @@ if __name__ == "__main__":
     
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = False, \
                 pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
@@ -456,7 +489,7 @@ if __name__ == "__main__":
     
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = True, squared_std = True, \
                 pri_type = 0, pri_coeff = 1) # squared_std?
     expmng.assign_model(model_bnn)
@@ -466,7 +499,7 @@ if __name__ == "__main__":
     ### OnlineBNN_1
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
     expmng.assign_model(model_bnn)
     tasks.append("RBE_1_UR_{}_".format(init_lr))
@@ -475,12 +508,12 @@ if __name__ == "__main__":
     ### OnlineBNN_1
     expmng.init_session()
     model_bnn = bnn_model([784, 100, 10], size_data = len(expmng.t_train), size_batch = batch_size, \
-                mu = 0.02, rhos = [-5.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
+                mu = 0.02, rhos = [-4.0, -1.0, 1.0], n_samples = 40, outact = tf.nn.relu, seed = 1234, \
                 lr = init_lr, kl_reweight = False, train_rho = True, only_loglike = False, ewc = False, squared_std = False) # squared_std?
     expmng.assign_model(model_bnn)
     tasks.append("RBE_1_NUR_{}_".format(init_lr))
     expmng.train(name_train ="RBE_1_NUR_{}_".format(init_lr), n_epochs = num_epochs, patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, reset_q_params = False)
-    
+    '''
     
     batch_size = 100
     num_epochs = 100 # 400 for bnn, 2000 for nn
@@ -489,7 +522,7 @@ if __name__ == "__main__":
     init_lr = 1e-4
     
     ### DNN + EWC
-    
+    '''
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
                 mu = 0.02, outact = tf.nn.relu, seed = 1234, \
@@ -513,7 +546,33 @@ if __name__ == "__main__":
     expmng.assign_model(model_nn)
     tasks.append("EWC_1_p100_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
+    '''
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, ewc = True, l2_reg = False, reg_penalty = 1)
+    expmng.assign_model(model_nn)
+    tasks.append("EWC_88_p1_{}".format(init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
     
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, ewc = True, l2_reg = False, reg_penalty = 10)
+    expmng.assign_model(model_nn)
+    tasks.append("EWC_88_p10_{}".format(init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
+    
+    expmng.init_session()
+    model_nn = nn_shson.nn_model([784, 800, 800, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
+                mu = 0.02, outact = tf.nn.relu, seed = 1234, \
+                lr = init_lr, ewc = True, l2_reg = False, reg_penalty = 100)
+    expmng.assign_model(model_nn)
+    tasks.append("EWC_88_p100_{}".format(init_lr))
+    expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = True, l2_reg = False, reset_q_params = False)
+    
+    
+    '''
     # DNN
     expmng.init_session()
     model_nn = nn_shson.nn_model([784, 100, 10], size_data = len(expmng.t_train[0]), size_batch = batch_size, \
@@ -543,6 +602,7 @@ if __name__ == "__main__":
     expmng.assign_model(model_nn)
     tasks.append("L2Tr_1_p5_{}".format(init_lr))
     expmng.train(name_train = tasks[-1], n_epochs = num_epochs, kind_model = "nn", patience = patience, vdec_range = vd_range, supgrad = False, update_prior = True, ewc = False, l2_reg = True, reset_q_params = False, kind_prob = 'permute')
+    '''
     
     # Plot
     colors = ['b', 'g', 'r', 'c']
